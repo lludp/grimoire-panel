@@ -1,0 +1,957 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Balance del Grimorio</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --fondo: #17110f;
+    --panel: #221a17;
+    --panel-2: #2c221e;
+    --borde: #4a3a2f;
+    --texto: #f1e6d2;
+    --suave: #b9a68b;
+    --oro: #d8a84e;
+    --rojo: #c8443a;
+    --verde: #6fbf73;
+    --amarillo: #f0c94a;
+    --cambiado: #4a3d16;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--fondo); color: var(--texto); font: 14px/1.4 system-ui, "Segoe UI", sans-serif; }
+  button, input, select { font: inherit; color: inherit; }
+  button { background: var(--panel-2); border: 1px solid var(--borde); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button:hover { border-color: var(--oro); }
+  button.principal { background: var(--oro); color: #1b130c; border-color: var(--oro); font-weight: 600; }
+  button.peligro { border-color: var(--rojo); color: #ffb4ab; }
+  button:disabled { opacity: .45; cursor: default; }
+  input[type=number], input[type=text], input[type=email], input[type=password], select {
+    background: #120d0b; border: 1px solid var(--borde); border-radius: 5px; padding: 4px 6px;
+  }
+  input[type=number] { width: 78px; text-align: right; }
+  input.cambiado { background: var(--cambiado); border-color: var(--amarillo); }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--borde); background: var(--panel); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; color: var(--oro); letter-spacing: .5px; }
+  header .espacio { flex: 1; }
+  nav { display: flex; gap: 4px; padding: 8px 16px 0; flex-wrap: wrap; border-bottom: 1px solid var(--borde); }
+  nav button { border-radius: 6px 6px 0 0; border-bottom: none; background: transparent; }
+  nav button.activa { background: var(--panel); border-color: var(--borde); color: var(--oro); }
+  main { padding: 16px; max-width: 1500px; margin: 0 auto; }
+  .barra { display: none; position: sticky; top: 52px; z-index: 4; gap: 8px; align-items: center; padding: 8px 16px; background: #3a2c13; border-bottom: 1px solid var(--amarillo); flex-wrap: wrap; }
+  .barra.visible { display: flex; }
+  .barra input[type=text] { flex: 1; min-width: 200px; }
+  .tarjeta { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+  .tarjeta h2, .tarjeta h3 { margin: 0 0 8px; font-size: 15px; color: var(--oro); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .tarjeta h2 small, .tarjeta h3 small { color: var(--suave); font-weight: 400; font-size: 12px; }
+  .tabla { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { padding: 4px 6px; border-bottom: 1px solid #33271f; text-align: right; white-space: nowrap; }
+  th { color: var(--suave); font-weight: 500; font-size: 12px; position: sticky; top: 0; background: var(--panel); }
+  td.texto, th.texto { text-align: left; }
+  td.calculo { color: #e8d7a8; font-variant-numeric: tabular-nums; }
+  tr.alerta td { background: rgba(200, 68, 58, .12); }
+  .chip { display: inline-block; padding: 1px 7px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--borde); font-size: 11px; color: var(--suave); margin-right: 3px; }
+  .fila { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .campos { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 16px; }
+  .campos label { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: var(--suave); }
+  .alertas { list-style: none; padding: 0; margin: 0; }
+  .alertas li { padding: 7px 10px; border-left: 3px solid var(--amarillo); background: var(--panel-2); margin-bottom: 6px; border-radius: 4px; }
+  .alertas li.grave { border-color: var(--rojo); }
+  .alertas li a { color: var(--oro); cursor: pointer; text-decoration: underline; }
+  .nota { color: var(--suave); font-size: 12px; }
+  .grafico { height: 300px; position: relative; }
+  .resumen { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .numero { font-size: 26px; color: var(--oro); font-weight: 700; }
+  #entrada { max-width: 360px; margin: 80px auto; }
+  #entrada label { display: block; margin: 10px 0 4px; color: var(--suave); }
+  #entrada input { width: 100%; padding: 8px; }
+  #aviso { position: fixed; right: 16px; bottom: 16px; background: var(--panel-2); border: 1px solid var(--oro); padding: 10px 14px; border-radius: 8px; display: none; z-index: 10; max-width: 420px; }
+  details summary { cursor: pointer; color: var(--oro); margin: 6px 0; }
+  .diff { font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: var(--suave); }
+  .diff b { color: var(--texto); font-weight: 500; }
+  [hidden] { display: none !important; }
+  @media (max-width: 700px) { main { padding: 10px; } .barra { top: 0; position: static; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>The Last Grimoire · Balance</h1>
+  <span class="espacio"></span>
+  <span id="quien" class="nota"></span>
+  <button id="salir" hidden>Salir</button>
+</header>
+
+<section id="entrada" class="tarjeta" hidden>
+  <h2>Entrar al panel</h2>
+  <p class="nota">Usá el mail y la contraseña que te dieron. Solo los editores pueden guardar cambios.</p>
+  <form id="formEntrada">
+    <label for="mail">Mail</label>
+    <input id="mail" type="email" autocomplete="username" required>
+    <label for="clave">Contraseña</label>
+    <input id="clave" type="password" autocomplete="current-password" required>
+    <p><button class="principal" type="submit">Entrar</button></p>
+    <p id="errorEntrada" class="nota"></p>
+  </form>
+</section>
+
+<section id="falta" class="tarjeta" hidden style="max-width:640px;margin:60px auto">
+  <h2>Falta configurar Supabase</h2>
+  <p>Completá <code>URL_DE_SUPABASE</code> y <code>CLAVE_PUBLICA</code> al principio del script de este archivo.</p>
+</section>
+
+<div id="app" hidden>
+  <nav id="pestanias"></nav>
+  <div id="barra" class="barra">
+    <strong id="pendientes"></strong>
+    <input id="notaDelCambio" type="text" placeholder="Por qué cambiás esto (se guarda en el historial)">
+    <button id="descartar">Descartar</button>
+    <button id="guardar" class="principal">Guardar</button>
+  </div>
+  <main id="contenido"></main>
+</div>
+<div id="aviso"></div>
+
+<script>
+const URL_DE_SUPABASE = "https://sbxoxvunfmeiufeaxtyi.supabase.co";
+const CLAVE_PUBLICA = "sb_publishable_RQS9lDcf_AaJnaTidNNpBQ_P7ZEA9UQ";
+
+const PESTANIAS = [
+  ["resumen", "Resumen"], ["torres", "Torres"], ["enemigos", "Enemigos"], ["oleadas", "Oleadas"],
+  ["items", "Ítems"], ["general", "General"], ["historial", "Historial"], ["cargar", "Cargar del proyecto"],
+];
+
+const NOMBRES_DE_CAMPOS = {
+  maxHealth: "Vida", damage: "Daño", attackRate: "Seg. entre ataques", attackCooldown: "Seg. entre ataques",
+  attackRange: "Alcance", patrolSpeed: "Vel. patrulla", chaseSpeed: "Vel. persecución", moveSpeed: "Velocidad",
+  velocidadDelAgente: "Vel. en el camino", oroAlMorir: "Oro", xpAlMorir: "XP", rangoDanioCastillo: "Alcance al castillo",
+  restTimeBetweenWaves: "Descanso entre oleadas (s)", vidaExtraPorOleada: "Vida extra por oleada (0.04 = +4%)", oroExtraPorOleada: "Oro extra por oleada (0.03 = +3%)", enemigosDeMasPorVuelta: "Enemigos de más por vuelta",
+  oleadasQueSeRepiten: "Oleadas que se repiten", vidaPorSegundo: "Vida que recupera por segundo",
+  esperaParaRecuperarse: "Espera para recuperarse (s)", tiempoParaRegen: "Espera para regenerar (s)",
+  regenPorSegundo: "Regeneración por segundo", woodPrice: "Precio de la madera", stonePrice: "Precio de la piedra",
+  mineralPrice: "Precio del mineral", costeOro: "Costo en oro", nivelDesbloqueo: "Nivel para desbloquear",
+  duracionEfecto: "Duración del efecto (s)", alcance: "Alcance", nivelRequerido: "Nivel req.", oroMejora: "Oro mejora",
+  dano: "Daño", velocidad: "Disparos/s", rango: "Rango", efecto: "Efecto", efecto2: "Efecto 2", poder: "Poder",
+  cantidadMaterial: "Material", cantidad: "Cantidad", segundosEntreSpawns: "Seg. entre salidas",
+  maxStamina: "Estamina máxima", staminaDrain: "Gasto al correr por segundo", staminaRegen: "Recuperación por segundo",
+  cooldownThreshold: "Estamina para volver a correr tras agotarse",
+  reduccionCuerpoACuerpo: "Daño evitado cuerpo a cuerpo (%)", reduccionDeLejos: "Daño evitado de rango/magia (%)",
+  costoAlBloquearCuerpoACuerpo: "Estamina al bloquear cuerpo a cuerpo (%)", costoAlBloquearDeLejos: "Estamina al bloquear rango/magia (%)",
+  costoDeLevantarLaGuardia: "Estamina por levantar la guardia (%)", guardiaDesde: "La guardia cubre desde (s)",
+  guardiaHasta: "La guardia cubre hasta (s)", esperaEntreBloqueos: "Espera entre bloqueos (s)",
+  anguloQueCubre: "Ángulo que cubre (°)", pausaDeLaEstaminaAlBloquear: "Pausa de la estamina al bloquear (s)",
+  reduccionConGuardiaRota: "Con guardia rota evita (0.5 = la mitad)", segundosConLaGuardiaRota: "Segundos con la guardia rota",
+};
+
+const NOMBRES_DE_GENERALES = { WaveManager: "Oleadas", CastleStats: "Castillo", PlayerStats: "Jugador", PlayerMovement: "Estamina", BloqueoConEspada: "Bloqueo con la espada" };
+
+const PESTANIA_DE_CATEGORIA = { torre: "torres", enemigo: "enemigos", oleada: "oleadas", item: "items", general: "general" };
+
+const UMBRALES_POR_DEFECTO = { curvaDeTorres: 60, curvaDeOro: 100, tendenciaDeOleadas: 100 };
+
+const estado = {
+  filas: new Map(),
+  borradores: new Map(),
+  pestania: "resumen",
+  editor: false,
+  graficos: [],
+  torreParaComparar: "",
+  nivelParaComparar: 0,
+  filtroDeEnemigos: "",
+  umbrales: leerLocal("umbrales2", UMBRALES_POR_DEFECTO),
+};
+
+let supa = null;
+
+function leerLocal(clave, defecto) {
+  try { return { ...defecto, ...JSON.parse(localStorage.getItem("balance." + clave) || "{}") }; } catch { return { ...defecto }; }
+}
+function guardarLocal(clave, valor) {
+  try { localStorage.setItem("balance." + clave, JSON.stringify(valor)); } catch {}
+}
+
+const $ = (id) => document.getElementById(id);
+const copia = (o) => JSON.parse(JSON.stringify(o));
+const esc = (t) => String(t ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const redondo = (n, d = 2) => (n == null || !isFinite(n)) ? "—" : (+n.toFixed(d)).toLocaleString("es-AR");
+const limpio = (n) => (n == null || !isFinite(n)) ? "" : +(+n).toFixed(4);
+
+function leerRuta(objeto, ruta) {
+  return ruta.split(".").reduce((o, k) => (o == null ? undefined : o[k]), objeto);
+}
+function escribirRuta(objeto, ruta, valor) {
+  const partes = ruta.split(".");
+  let o = objeto;
+  for (let i = 0; i < partes.length - 1; i++) o = o[partes[i]];
+  o[partes[partes.length - 1]] = valor;
+}
+
+function datosDe(id) {
+  return estado.borradores.has(id) ? estado.borradores.get(id) : estado.filas.get(id)?.datos;
+}
+function filasDe(categoria) {
+  return [...estado.filas.values()].filter((f) => f.categoria === categoria);
+}
+
+function aviso(texto, segundos = 4) {
+  const caja = $("aviso");
+  caja.textContent = texto;
+  caja.style.display = "block";
+  clearTimeout(aviso.temporizador);
+  aviso.temporizador = setTimeout(() => (caja.style.display = "none"), segundos * 1000);
+}
+
+function campo(id, ruta, { entero = false, min = 0, paso } = {}) {
+  const valor = leerRuta(datosDe(id), ruta);
+  if (valor === undefined) return "";
+  const original = leerRuta(estado.filas.get(id)?.proyecto, ruta);
+  const cambiado = original !== undefined && Math.abs(+valor - +original) > 1e-6;
+  const titulo = original !== undefined ? `Valor del juego: ${limpio(original)}` : "";
+  return `<input type="number" data-id="${esc(id)}" data-ruta="${esc(ruta)}" data-entero="${entero ? 1 : 0}"
+    value="${limpio(valor)}" min="${min}" step="${paso ?? (entero ? 1 : "any")}" title="${esc(titulo)}"
+    class="${cambiado ? "cambiado" : ""}" ${estado.editor ? "" : "disabled"}>`;
+}
+
+function botonRestaurar(id) {
+  if (!estado.editor) return "";
+  const fila = estado.filas.get(id);
+  if (!fila || JSON.stringify(datosDe(id)) === JSON.stringify(fila.proyecto)) return "";
+  return `<button data-restaurar="${esc(id)}" title="Vuelve a los valores que tiene hoy el juego">Volver al valor del juego</button>`;
+}
+
+function infoDeCambio(id) {
+  const fila = estado.filas.get(id);
+  if (!fila || !fila.actualizado_por || fila.actualizado_por === "unity") return "";
+  return `<small>último cambio: ${esc(fila.actualizado_por)} · ${new Date(fila.actualizado_en).toLocaleString("es-AR")}</small>`;
+}
+
+function calcularTorre(fila, datos = datosDe(fila.id)) {
+  const meta = fila.meta || {};
+  let dano = meta.danoDelPrefab || 0, vel = meta.velocidadDelPrefab || 0, rango = meta.rangoDelPrefab || 0, oro = 0;
+  return (datos.niveles || []).map((n, i) => {
+    if (n.dano > 0) dano = n.dano;
+    if (n.velocidad > 0) vel = n.velocidad;
+    if (n.rango > 0) rango = n.rango;
+    oro += i === 0 ? (datos.costeOro || 0) : (n.oroMejora || 0);
+    const dps = dano * vel;
+    return { etiqueta: i === 0 ? "Base" : `Nivel ${i}`, dano, vel, rango, dps, oro, dpsPorMil: oro > 0 ? dps / oro * 1000 : 0 };
+  });
+}
+const torreHaceDanio = (fila) => calcularTorre(fila).some((n) => n.dps > 0);
+
+function calcularEnemigo(fila, datos = datosDe(fila.id)) {
+  const cada = datos.attackRate ?? datos.attackCooldown;
+  const vida = datos.maxHealth ?? 0;
+  return {
+    vida,
+    dps: cada > 0 && datos.damage != null ? datos.damage / cada : null,
+    oroPorCien: vida > 0 && datos.oroAlMorir != null ? datos.oroAlMorir / vida * 100 : null,
+  };
+}
+
+function enemigoPorPrefab(nombre) {
+  const candidatos = filasDe("enemigo").filter((f) => f.id.endsWith("/" + nombre));
+  return candidatos.find((f) => f.meta?.componente === "EnemyInvader") || candidatos[0];
+}
+
+function multiplicadoresDeOleada(datos) {
+  const general = datosDe("general/WaveManager") || {};
+  const orden = Math.max(0, datos.orden ?? 0);
+  const enOrden = (datos.orden ?? -1) >= 0;
+  return {
+    vida: (datos.multiplicadorDeVida ?? 1) * (enOrden ? Math.pow(1 + (general.vidaExtraPorOleada || 0), orden) : 1),
+    oro: (datos.multiplicadorDeOro ?? 1) * (enOrden ? Math.pow(1 + (general.oroExtraPorOleada || 0), orden) : 1),
+  };
+}
+
+function calcularOleada(fila, datos = datosDe(fila.id)) {
+  let vida = 0, oro = 0, segundos = 0, desconocidos = 0, cantidad = 0;
+  for (const e of datos.enemigos || []) {
+    const enemigo = enemigoPorPrefab(e.enemigo);
+    const d = enemigo ? datosDe(enemigo.id) : null;
+    if (!d) desconocidos++;
+    vida += e.cantidad * (d?.maxHealth || 0);
+    oro += e.cantidad * (d?.oroAlMorir || 0);
+    segundos += e.cantidad * e.segundosEntreSpawns;
+    cantidad += e.cantidad;
+  }
+  const mult = multiplicadoresDeOleada(datos);
+  vida *= mult.vida;
+  oro *= mult.oro;
+  return { vida, oro, segundos, cantidad, vidaPorSegundo: segundos > 0 ? vida / segundos : vida, desconocidos, mult };
+}
+
+function oleadasEnOrden() {
+  return filasDe("oleada").filter((f) => (datosDe(f.id).orden ?? -1) >= 0).sort((a, b) => datosDe(a.id).orden - datosDe(b.id).orden);
+}
+
+function ajustarCurva(puntos) {
+  const validos = puntos.filter(([x, y]) => x > 0 && y > 0).map(([x, y]) => [Math.log(x), Math.log(y)]);
+  if (validos.length < 3) return null;
+  const n = validos.length;
+  const mx = validos.reduce((s, p) => s + p[0], 0) / n, my = validos.reduce((s, p) => s + p[1], 0) / n;
+  const sxx = validos.reduce((s, p) => s + (p[0] - mx) ** 2, 0);
+  const b = sxx > 0 ? validos.reduce((s, p) => s + (p[0] - mx) * (p[1] - my), 0) / sxx : 0;
+  const a = my - b * mx;
+  return (x) => Math.exp(a + b * Math.log(x));
+}
+
+function ajustarTendencia(valores) {
+  const validos = valores.map((y, i) => [i, y]).filter(([, y]) => y > 0);
+  if (validos.length < 3) return null;
+  const n = validos.length;
+  const mx = validos.reduce((s, p) => s + p[0], 0) / n, my = validos.reduce((s, p) => s + Math.log(p[1]), 0) / n;
+  const sxx = validos.reduce((s, p) => s + (p[0] - mx) ** 2, 0);
+  const b = sxx > 0 ? validos.reduce((s, p) => s + (p[0] - mx) * (Math.log(p[1]) - my), 0) / sxx : 0;
+  return (i) => Math.exp(my + b * (i - mx));
+}
+
+function curvaDeTorres() {
+  return ajustarCurva(filasDe("torre").filter(torreHaceDanio).flatMap((t) => calcularTorre(t).map((n) => [n.oro, n.dps])));
+}
+
+function desvio(valor, esperado) {
+  if (!(esperado > 0) || !(valor > 0)) return 0;
+  return valor >= esperado ? (valor / esperado - 1) * 100 : -(esperado / valor - 1) * 100;
+}
+
+function cuantoSeAleja(d) {
+  return d > 0 ? `${redondo(d, 0)}% arriba` : `${redondo(100 / (1 + Math.abs(d) / 100), 0)}% de lo esperado`;
+}
+
+function listaDeNiveles(etiquetas) {
+  return etiquetas.length <= 1 ? etiquetas.join("") : etiquetas.slice(0, -1).join(", ") + " y " + etiquetas[etiquetas.length - 1];
+}
+
+function calcularAlertas() {
+  const alertas = [];
+  const u = estado.umbrales;
+
+  const curva = curvaDeTorres();
+  for (const t of filasDe("torre").filter(torreHaceDanio)) {
+    const niveles = calcularTorre(t);
+    if (curva) {
+      const arriba = [], abajo = [];
+      let masArriba = 0, masAbajo = 0;
+      for (const n of niveles) {
+        const d = desvio(n.dps, curva(n.oro));
+        if (d >= u.curvaDeTorres) arriba.push(n.etiqueta);
+        if (d <= -u.curvaDeTorres) abajo.push(n.etiqueta);
+        masArriba = Math.max(masArriba, d);
+        masAbajo = Math.min(masAbajo, d);
+      }
+      const habilidad = t.meta?.habilidad ? ` Ojo: su habilidad (${t.meta.habilidad}) no entra en el DPS directo.` : "";
+      if (arriba.length) alertas.push({ grave: true, pestania: "torres", ancla: t.id,
+        texto: `${t.nombre}: pega más de lo que cuesta en ${listaDeNiveles(arriba)} (hasta ${cuantoSeAleja(masArriba)} de la curva de costo).` });
+      if (abajo.length) alertas.push({ grave: false, pestania: "torres", ancla: t.id,
+        texto: `${t.nombre}: pega menos de lo que cuesta en ${listaDeNiveles(abajo)} (llega a ${cuantoSeAleja(masAbajo)}).${habilidad}` });
+    }
+    const sinMejora = [];
+    for (let i = 1; i < niveles.length; i++)
+      if (niveles[i - 1].dps > 0 && niveles[i].dps <= niveles[i - 1].dps) sinMejora.push(niveles[i].etiqueta);
+    if (sinMejora.length) alertas.push({ grave: false, pestania: "torres", ancla: t.id,
+      texto: `${t.nombre}: ${listaDeNiveles(sinMejora)} no ${sinMejora.length > 1 ? "suben" : "sube"} el DPS directo.` });
+  }
+
+  const porTipo = new Map();
+  for (const e of filasDe("enemigo")) {
+    const d = datosDe(e.id);
+    if (d.maxHealth == null || d.oroAlMorir == null) continue;
+    const tipo = e.meta?.componente || "";
+    if (!porTipo.has(tipo)) porTipo.set(tipo, []);
+    porTipo.get(tipo).push(e);
+  }
+  for (const lista of porTipo.values()) {
+    const curvaDeOro = ajustarCurva(lista.map((e) => [datosDe(e.id).maxHealth, datosDe(e.id).oroAlMorir]));
+    for (const e of lista) {
+      const d = datosDe(e.id);
+      if (d.oroAlMorir <= 0) {
+        alertas.push({ grave: false, pestania: "enemigos", ancla: e.id, texto: `${e.nombre}: no da oro al morir.` });
+        continue;
+      }
+      if (!curvaDeOro) continue;
+      const dif = desvio(d.oroAlMorir, curvaDeOro(d.maxHealth));
+      if (Math.abs(dif) >= u.curvaDeOro)
+        alertas.push({ grave: dif > 0, pestania: "enemigos", ancla: e.id,
+          texto: `${e.nombre}: da ${dif > 0 ? "más" : "menos"} oro del que corresponde a su vida (${cuantoSeAleja(dif)}).` });
+    }
+  }
+
+  const oleadas = oleadasEnOrden();
+  const vidas = oleadas.map((o) => calcularOleada(o).vida);
+  const tendencia = ajustarTendencia(vidas);
+  if (tendencia) oleadas.forEach((o, i) => {
+    const dif = desvio(vidas[i], tendencia(i));
+    if (Math.abs(dif) >= u.tendenciaDeOleadas)
+      alertas.push({ grave: dif > 0, pestania: "oleadas", ancla: o.id,
+        texto: `${o.nombre}: ${dif > 0 ? "mucho más dura" : "mucho más fácil"} que la tendencia (${dif > 0 ? cuantoSeAleja(dif) : cuantoSeAleja(dif).replace("lo esperado", "la tendencia")}).` });
+  });
+  for (const o of filasDe("oleada")) {
+    if (calcularOleada(o).desconocidos)
+      alertas.push({ grave: false, pestania: "oleadas", ancla: o.id, texto: `${o.nombre}: tiene enemigos que no están en el panel, su vida no se cuenta.` });
+  }
+
+  for (const f of estado.filas.values()) {
+    const negativos = [];
+    (function recorrer(o, ruta) {
+      if (typeof o === "number" && o < 0 && ruta !== "orden") negativos.push(ruta);
+      else if (o && typeof o === "object") for (const k in o) recorrer(o[k], ruta ? ruta + "." + k : k);
+    })(datosDe(f.id), "");
+    if (negativos.length) alertas.push({ grave: true, pestania: PESTANIA_DE_CATEGORIA[f.categoria], ancla: f.id,
+      texto: `${f.nombre}: tiene valores negativos (${negativos.map((r) => rutaLegible(f.id, r)).join(", ")}).` });
+  }
+  return alertas.sort((a, b) => b.grave - a.grave);
+}
+
+function dibujar() {
+  estado.graficos.forEach((g) => g.destroy());
+  estado.graficos = [];
+  const activo = document.activeElement;
+  const foco = activo?.dataset?.ruta ? [activo.dataset.id, activo.dataset.ruta] : null;
+
+  $("pestanias").innerHTML = PESTANIAS.filter(([clave]) => clave !== "cargar" || estado.editor)
+    .map(([clave, nombre]) => `<button data-pestania="${clave}" class="${estado.pestania === clave ? "activa" : ""}">${nombre}</button>`).join("");
+
+  const pintores = { resumen: pintarResumen, torres: pintarTorres, enemigos: pintarEnemigos, oleadas: pintarOleadas,
+    items: pintarItems, general: pintarGeneral, historial: pintarHistorial, cargar: pintarCargar };
+  $("contenido").innerHTML = pintores[estado.pestania]();
+  if (estado.pestania === "torres") graficoDeTorres();
+  if (estado.pestania === "oleadas") graficoDeOleadas();
+  if (estado.pestania === "historial") cargarHistorial();
+
+  const n = estado.borradores.size;
+  $("barra").classList.toggle("visible", n > 0);
+  $("pendientes").textContent = `${n} ${n === 1 ? "cosa cambiada" : "cosas cambiadas"} sin guardar`;
+
+  if (foco) {
+    const otra = document.querySelector(`input[data-id="${CSS.escape(foco[0])}"][data-ruta="${CSS.escape(foco[1])}"]`);
+    if (otra) otra.focus();
+  }
+}
+
+function pintarResumen() {
+  const alertas = calcularAlertas();
+  const u = estado.umbrales;
+  const graves = alertas.filter((a) => a.grave).length;
+  const cambiadas = [...estado.filas.values()].filter((f) => JSON.stringify(f.datos) !== JSON.stringify(f.proyecto)).length;
+  return `
+  <div class="resumen">
+    <div class="tarjeta"><div class="nota">Alertas</div><div class="numero">${alertas.length}</div><div class="nota">${graves} importantes</div></div>
+    <div class="tarjeta"><div class="nota">Cosas distintas al juego</div><div class="numero">${cambiadas}</div><div class="nota">de ${estado.filas.size} en el panel</div></div>
+    <div class="tarjeta"><div class="nota">Torres / Enemigos / Oleadas</div><div class="numero">${filasDe("torre").length} / ${filasDe("enemigo").length} / ${filasDe("oleada").length}</div></div>
+  </div>
+  <div class="tarjeta">
+    <h2>Alertas de balance</h2>
+    ${alertas.length ? `<ul class="alertas">${alertas.map((a) => `<li class="${a.grave ? "grave" : ""}">${esc(a.texto)} <a data-ir="${a.pestania}" data-ancla="${esc(a.ancla)}">ver</a></li>`).join("")}</ul>`
+      : `<p class="nota">No hay nada fuera de los límites.</p>`}
+  </div>
+  <div class="tarjeta">
+    <h2>Límites de las alertas</h2>
+    <div class="campos">
+      <label>Torres: DPS vs. curva de costo (%) <input type="number" data-umbral="curvaDeTorres" value="${u.curvaDeTorres}" min="1"></label>
+      <label>Enemigos: oro vs. curva de vida (%) <input type="number" data-umbral="curvaDeOro" value="${u.curvaDeOro}" min="1"></label>
+      <label>Oleadas: vida vs. tendencia (%) <input type="number" data-umbral="tendenciaDeOleadas" value="${u.tendenciaDeOleadas}" min="1"></label>
+    </div>
+    <p class="nota">Cada curva sale de todos los valores del juego juntos: qué DPS da en promedio cada cantidad de oro invertido, cuánto oro da en promedio cada cantidad de vida y cómo crece la vida de oleada en oleada. Una alerta marca lo que se aleja más que ese porcentaje. Los límites se guardan solo en este navegador.</p>
+  </div>
+  <div class="tarjeta">
+    <h2>Datos</h2>
+    <p class="nota">El juego baja estos valores al arrancar y con F9. Lo que ves acá es lo que van a jugar.</p>
+    <button id="descargarJson">Descargar JSON</button>
+  </div>`;
+}
+
+function pintarTorres() {
+  const torres = filasDe("torre").sort((a, b) => (datosDe(a.id).costeOro || 0) - (datosDe(b.id).costeOro || 0));
+  return `
+  <div class="tarjeta">
+    <h2>Curvas de las torres <small>solo las que hacen daño directo</small></h2>
+    <div class="fila">
+      <select id="metricaDeTorres">
+        <option value="curva">DPS vs. oro invertido (curva de costo)</option>
+        <option value="dps">DPS por nivel</option>
+        <option value="dpsPorMil">DPS por cada 1000 de oro invertido</option>
+        <option value="oro">Oro invertido acumulado</option>
+      </select>
+    </div>
+    <div class="grafico"><canvas id="graficoTorres"></canvas></div>
+    <p class="nota">DPS = daño × disparos por segundo, contra un solo enemigo. No cuenta quemaduras, área ni el bonus del Archivo de Guerra.</p>
+  </div>
+  ${torres.map(pintarTorre).join("")}`;
+}
+
+function pintarTorre(fila) {
+  const d = datosDe(fila.id);
+  const calculos = calcularTorre(fila, d);
+  const claves = [...new Set((d.niveles || []).flatMap((n) => (n.efectos || []).map((e) => e.clave)))];
+  const alertas = new Set(calcularAlertas().filter((a) => a.ancla === fila.id).map((a) => a.texto));
+  return `
+  <div class="tarjeta" id="${esc(fila.id)}">
+    <h3>${esc(fila.nombre)} ${fila.meta?.habilidad ? `<span class="chip">${esc(fila.meta.habilidad)}</span>` : ""}
+      <label class="nota">Costo ${campo(fila.id, "costeOro", { entero: true })}</label>
+      ${botonRestaurar(fila.id)} ${infoDeCambio(fila.id)}</h3>
+    ${alertas.size ? `<ul class="alertas">${[...alertas].map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : ""}
+    <div class="tabla"><table>
+      <tr><th class="texto">Nivel</th><th>Nivel req.</th><th>Oro mejora</th><th class="texto">Material</th><th>Cant.</th>
+        <th>Daño</th><th>Disparos/s</th><th>Rango</th><th>Efecto</th><th>Efecto 2</th>
+        ${claves.map((c) => `<th>${esc(c)}</th>`).join("")}
+        <th>DPS</th><th>Oro total</th><th>DPS / 1000 oro</th></tr>
+      ${(d.niveles || []).map((n, i) => `
+      <tr>
+        <td class="texto">${esc(n.etiqueta || (i ? "Nivel " + i : "Base"))}</td>
+        <td>${i ? campo(fila.id, `niveles.${i}.nivelRequerido`, { entero: true }) : "—"}</td>
+        <td>${i ? campo(fila.id, `niveles.${i}.oroMejora`, { entero: true }) : "—"}</td>
+        <td class="texto">${n.material && n.material !== "Ninguno" ? esc(n.material) : "—"}</td>
+        <td>${n.material && n.material !== "Ninguno" ? campo(fila.id, `niveles.${i}.cantidadMaterial`, { entero: true }) : "—"}</td>
+        <td>${campo(fila.id, `niveles.${i}.dano`)}</td>
+        <td>${campo(fila.id, `niveles.${i}.velocidad`)}</td>
+        <td>${campo(fila.id, `niveles.${i}.rango`)}</td>
+        <td>${campo(fila.id, `niveles.${i}.efecto`)}</td>
+        <td>${campo(fila.id, `niveles.${i}.efecto2`)}</td>
+        ${claves.map((c) => { const j = (n.efectos || []).findIndex((e) => e.clave === c); return `<td>${j >= 0 ? campo(fila.id, `niveles.${i}.efectos.${j}.valor`) : "—"}</td>`; }).join("")}
+        <td class="calculo">${calculos[i].dps ? redondo(calculos[i].dps) : "—"}</td>
+        <td class="calculo">${redondo(calculos[i].oro, 0)}</td>
+        <td class="calculo">${calculos[i].dps ? redondo(calculos[i].dpsPorMil) : "—"}</td>
+      </tr>`).join("")}
+    </table></div>
+    <p class="nota">Un 0 en daño, disparos o rango significa "igual que el nivel anterior".</p>
+  </div>`;
+}
+
+function graficoDeTorres() {
+  const selector = $("metricaDeTorres");
+  selector.value = estado.metricaDeTorres || "curva";
+  const torres = filasDe("torre").filter(torreHaceDanio);
+  const metrica = selector.value;
+  if (metrica === "curva") {
+    const curva = curvaDeTorres();
+    const oros = torres.flatMap((t) => calcularTorre(t).map((n) => n.oro)).filter((x) => x > 0);
+    const desde = Math.min(...oros), hasta = Math.max(...oros);
+    const linea = curva ? Array.from({ length: 30 }, (_, i) => { const x = desde * Math.pow(hasta / desde, i / 29); return { x, y: +curva(x).toFixed(2) }; }) : [];
+    const opciones = opcionesDeGrafico();
+    opciones.interaction = { mode: "nearest", intersect: true };
+    opciones.scales.x = { ...opciones.scales.x, type: "logarithmic", title: { display: true, text: "Oro invertido (escala log)", color: "#b9a68b" } };
+    opciones.scales.y = { ...opciones.scales.y, type: "logarithmic", beginAtZero: false, title: { display: true, text: "DPS directo (escala log)", color: "#b9a68b" } };
+    opciones.plugins.tooltip = { callbacks: { label: (c) => `${c.dataset.label}: ${redondo(c.parsed.y)} DPS con ${redondo(c.parsed.x, 0)} de oro` } };
+    estado.graficos.push(new Chart($("graficoTorres"), {
+      type: "scatter",
+      data: { datasets: [
+        { label: "Curva esperada", data: linea, showLine: true, pointRadius: 0, borderDash: [6, 4], borderColor: "#f1e6d2", backgroundColor: "#f1e6d2" },
+        ...torres.map((t, k) => ({ label: t.nombre, data: calcularTorre(t).filter((n) => n.dps > 0).map((n) => ({ x: n.oro, y: +n.dps.toFixed(2) })), showLine: true, borderColor: color(k), backgroundColor: color(k) })),
+      ] },
+      options: opciones,
+    }));
+    return;
+  }
+  const maximo = Math.max(...torres.map((t) => (datosDe(t.id).niveles || []).length));
+  const etiquetas = Array.from({ length: maximo }, (_, i) => (i ? "Nivel " + i : "Base"));
+  estado.graficos.push(new Chart($("graficoTorres"), {
+    type: "line",
+    data: { labels: etiquetas, datasets: torres.map((t, k) => ({ label: t.nombre, data: calcularTorre(t).map((n) => +n[metrica].toFixed(2)), borderColor: color(k), backgroundColor: color(k), tension: .25 })) },
+    options: opcionesDeGrafico(),
+  }));
+}
+
+function color(k) {
+  return ["#d8a84e", "#c8443a", "#6fbf73", "#5aa2d8", "#b87bd8", "#e07b39", "#4fc1b0", "#e05b8f", "#a7b93e", "#8f8fe0", "#d8d04e", "#7d5a3c", "#9ec3d8", "#d89ec3"][k % 14];
+}
+
+function opcionesDeGrafico(dobleEje = false) {
+  const ejes = {
+    x: { ticks: { color: "#b9a68b" }, grid: { color: "#33271f" } },
+    y: { ticks: { color: "#b9a68b" }, grid: { color: "#33271f" }, beginAtZero: true },
+  };
+  if (dobleEje) ejes.y2 = { position: "right", ticks: { color: "#b9a68b" }, grid: { drawOnChartArea: false }, beginAtZero: true };
+  return { responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+    plugins: { legend: { labels: { color: "#f1e6d2", boxWidth: 12 } } }, scales: ejes };
+}
+
+function pintarEnemigos() {
+  const torres = filasDe("torre").filter(torreHaceDanio);
+  if (!estado.torreParaComparar && torres.length) estado.torreParaComparar = torres[0].id;
+  const torre = estado.filas.get(estado.torreParaComparar);
+  const nivelesDeTorre = torre ? calcularTorre(torre) : [];
+  const nivel = Math.min(estado.nivelParaComparar, Math.max(0, nivelesDeTorre.length - 1));
+  const dpsTorre = nivelesDeTorre[nivel]?.dps || 0;
+  const filtro = estado.filtroDeEnemigos.toLowerCase();
+
+  const grupos = new Map();
+  for (const e of filasDe("enemigo").sort((a, b) => a.nombre.localeCompare(b.nombre))) {
+    if (filtro && !e.nombre.toLowerCase().includes(filtro)) continue;
+    const tipo = e.meta?.componente === "EnemyInvader" ? "De las oleadas" : "Del mundo abierto";
+    if (!grupos.has(tipo)) grupos.set(tipo, []);
+    grupos.get(tipo).push(e);
+  }
+  const conAlerta = new Set(calcularAlertas().map((a) => a.ancla));
+
+  return `
+  <div class="tarjeta fila">
+    <input type="text" id="filtroDeEnemigos" placeholder="Buscar enemigo" value="${esc(estado.filtroDeEnemigos)}">
+    <label class="nota">Tiempo para matarlo con
+      <select id="torreParaComparar">${torres.map((t) => `<option value="${esc(t.id)}" ${t.id === estado.torreParaComparar ? "selected" : ""}>${esc(t.nombre)}</option>`).join("")}</select>
+      <select id="nivelParaComparar">${nivelesDeTorre.map((n, i) => `<option value="${i}" ${i === nivel ? "selected" : ""}>${n.etiqueta}</option>`).join("")}</select>
+    </label>
+    <span class="nota">DPS de esa torre: ${redondo(dpsTorre)}</span>
+  </div>
+  ${[...grupos].map(([titulo, lista]) => {
+    const campos = [...new Set(lista.flatMap((e) => Object.keys(datosDe(e.id))))].sort((a, b) => ordenDeCampo(a) - ordenDeCampo(b));
+    return `<div class="tarjeta"><h2>${titulo} <small>${lista.length}</small></h2><div class="tabla"><table>
+      <tr><th class="texto">Enemigo</th>${campos.map((c) => `<th>${esc(NOMBRES_DE_CAMPOS[c] || c)}</th>`).join("")}
+        <th>DPS</th><th>Oro / 100 vida</th><th>Tiempo para matarlo</th><th class="texto">Habilidades</th><th></th></tr>
+      ${lista.map((e) => {
+        const c = calcularEnemigo(e);
+        const enteros = new Set(e.meta?.enteros || []);
+        return `<tr id="${esc(e.id)}" class="${conAlerta.has(e.id) ? "alerta" : ""}">
+          <td class="texto" title="${esc(e.meta?.ruta || "")}">${esc(e.nombre)} <span class="chip">${esc(e.meta?.componente || "")}</span></td>
+          ${campos.map((k) => `<td>${campo(e.id, k, { entero: enteros.has(k) })}</td>`).join("")}
+          <td class="calculo">${redondo(c.dps)}</td>
+          <td class="calculo">${redondo(c.oroPorCien)}</td>
+          <td class="calculo">${dpsTorre > 0 && c.vida > 0 ? redondo(c.vida / dpsTorre, 1) + " s" : "—"}</td>
+          <td class="texto">${(e.meta?.habilidades || []).map((h) => `<span class="chip">${esc(h)}</span>`).join("")}</td>
+          <td>${botonRestaurar(e.id)}</td></tr>`;
+      }).join("")}
+    </table></div></div>`;
+  }).join("")}`;
+}
+
+function ordenDeCampo(c) {
+  const orden = ["maxHealth", "damage", "attackRate", "attackCooldown", "attackRange", "velocidadDelAgente", "moveSpeed", "chaseSpeed", "patrolSpeed", "oroAlMorir", "xpAlMorir", "rangoDanioCastillo"];
+  const i = orden.indexOf(c);
+  return i < 0 ? 99 : i;
+}
+
+function pintarOleadas() {
+  const principales = oleadasEnOrden();
+  const otras = filasDe("oleada").filter((f) => (datosDe(f.id).orden ?? -1) < 0).sort((a, b) => a.id.localeCompare(b.id));
+  const conAlerta = new Set(calcularAlertas().map((a) => a.ancla));
+  const tabla = (lista) => `<div class="tabla"><table>
+    <tr><th class="texto">Oleada</th><th class="texto">Enemigos (cantidad × cada cuántos segundos sale)</th><th title="Multiplica la vida de cada enemigo de esta oleada">× vida</th><th title="Multiplica el oro de cada enemigo de esta oleada">× oro</th><th>Vida total</th><th>Oro total</th><th>Dura</th><th>Vida que entra por seg.</th><th></th></tr>
+    ${lista.map((o) => {
+      const d = datosDe(o.id), c = calcularOleada(o, d);
+      return `<tr id="${esc(o.id)}" class="${conAlerta.has(o.id) ? "alerta" : ""}">
+        <td class="texto">${esc(o.nombre)}<br><span class="chip">${esc(d.dificultad || "")}</span></td>
+        <td class="texto">${(d.enemigos || []).map((e, i) => `<div>${esc(e.enemigo)} ${campo(o.id, `enemigos.${i}.cantidad`, { entero: true })} × ${campo(o.id, `enemigos.${i}.segundosEntreSpawns`)} s</div>`).join("")}</td>
+        <td>${d.multiplicadorDeVida !== undefined ? campo(o.id, "multiplicadorDeVida", { paso: 0.05 }) : "—"}</td>
+        <td>${d.multiplicadorDeOro !== undefined ? campo(o.id, "multiplicadorDeOro", { paso: 0.05 }) : "—"}</td>
+        <td class="calculo" title="Con todos los multiplicadores: × ${redondo(c.mult.vida)}">${redondo(c.vida, 0)}</td>
+        <td class="calculo" title="Con todos los multiplicadores: × ${redondo(c.mult.oro)}">${redondo(c.oro, 0)}</td>
+        <td class="calculo">${redondo(c.segundos, 0)} s</td>
+        <td class="calculo">${redondo(c.vidaPorSegundo, 1)}</td>
+        <td>${botonRestaurar(o.id)}</td></tr>`;
+    }).join("")}
+  </table></div>`;
+  return `
+  <div class="tarjeta">
+    <h2>Curva de las oleadas <small>las ${principales.length} del Tower Defense, en orden</small></h2>
+    <div class="grafico"><canvas id="graficoOleadas"></canvas></div>
+    <p class="nota">"Vida que entra por segundo" sirve para comparar con el DPS de las torres: si tus torres tiran menos que eso, los enemigos se acumulan. "× vida" y "× oro" multiplican la vida y el oro de cada enemigo de esa oleada; la vida y el oro total ya los incluyen, junto con la vida y el oro extra por oleada de la pestaña General.</p>
+  </div>
+  <div class="tarjeta"><h2>Tower Defense</h2>${tabla(principales)}</div>
+  ${otras.length ? `<div class="tarjeta"><details><summary>Otras oleadas (${otras.length})</summary>${tabla(otras)}</details></div>` : ""}`;
+}
+
+function graficoDeOleadas() {
+  const oleadas = oleadasEnOrden();
+  const calculos = oleadas.map((o) => calcularOleada(o));
+  const tendencia = ajustarTendencia(calculos.map((c) => c.vida));
+  estado.graficos.push(new Chart($("graficoOleadas"), {
+    type: "line",
+    data: {
+      labels: oleadas.map((o, i) => i + 1),
+      datasets: [
+        { label: "Vida total", data: calculos.map((c) => c.vida), borderColor: "#c8443a", backgroundColor: "#c8443a", tension: .2 },
+        { label: "Tendencia de la vida", data: calculos.map((c, i) => tendencia ? Math.round(tendencia(i)) : null), borderColor: "#f1e6d2", backgroundColor: "#f1e6d2", borderDash: [6, 4], pointRadius: 0 },
+        { label: "Vida que entra por segundo", data: calculos.map((c) => +c.vidaPorSegundo.toFixed(1)), borderColor: "#5aa2d8", backgroundColor: "#5aa2d8", tension: .2, yAxisID: "y2" },
+        { label: "Oro total", data: calculos.map((c) => c.oro), borderColor: "#d8a84e", backgroundColor: "#d8a84e", tension: .2 },
+      ],
+    },
+    options: opcionesDeGrafico(true),
+  }));
+}
+
+function pintarItems() {
+  return filasDe("item").map((f) => {
+    const d = datosDe(f.id);
+    let oro = d.costeOro || 0;
+    return `<div class="tarjeta" id="${esc(f.id)}">
+      <h3>${esc(f.nombre)} <span class="chip">${esc(d.categoria || "")}</span>
+        ${f.meta?.efecto ? `<span class="chip">${esc(f.meta.efecto)}</span>` : ""}
+        ${f.meta?.gratis ? `<span class="chip">gratis</span>` : ""}${f.meta?.porHistoria ? `<span class="chip">por historia</span>` : ""}
+        ${botonRestaurar(f.id)} ${infoDeCambio(f.id)}</h3>
+      <div class="campos" style="margin-bottom:8px">
+        <label>Costo en oro ${campo(f.id, "costeOro", { entero: true })}</label>
+        <label>Nivel para desbloquear ${campo(f.id, "nivelDesbloqueo", { entero: true })}</label>
+        <label>Alcance ${campo(f.id, "alcance")}</label>
+        <label>Duración del efecto (s) ${campo(f.id, "duracionEfecto")}</label>
+      </div>
+      <div class="tabla"><table>
+        <tr><th class="texto">Nivel</th><th>Nivel req.</th><th>Oro mejora</th><th>Daño</th><th>Poder</th><th>Efecto${f.meta?.sufijo ? ` (${esc(f.meta.sufijo.trim())})` : ""}</th><th class="texto">Materiales</th><th>Oro total</th></tr>
+        ${(d.niveles || []).map((n, i) => {
+          if (i) oro += n.oroMejora || 0;
+          return `<tr><td class="texto">${esc(n.etiqueta)}</td>
+            <td>${campo(f.id, `niveles.${i}.nivelRequerido`, { entero: true })}</td>
+            <td>${i ? campo(f.id, `niveles.${i}.oroMejora`, { entero: true }) : "—"}</td>
+            <td>${campo(f.id, `niveles.${i}.dano`)}</td>
+            <td>${campo(f.id, `niveles.${i}.poder`, { entero: true })}</td>
+            <td>${campo(f.id, `niveles.${i}.efecto`)}</td>
+            <td class="texto">${(n.materiales || []).map((m, j) => `${esc(m.nombre)} ${campo(f.id, `niveles.${i}.materiales.${j}.cantidad`, { entero: true })}`).join(" ") || "—"}</td>
+            <td class="calculo">${redondo(oro, 0)}</td></tr>`;
+        }).join("")}
+      </table></div></div>`;
+  }).join("") || `<p class="nota">No hay ítems cargados.</p>`;
+}
+
+function pintarGeneral() {
+  return filasDe("general").map((f) => {
+    const enteros = new Set(f.meta?.enteros || []);
+    return `<div class="tarjeta" id="${esc(f.id)}"><h3>${esc(NOMBRES_DE_GENERALES[f.nombre] || f.nombre)} ${botonRestaurar(f.id)} ${infoDeCambio(f.id)}</h3>
+      <div class="campos">${Object.keys(datosDe(f.id)).map((k) => `<label>${esc(NOMBRES_DE_CAMPOS[k] || k)} ${campo(f.id, k, { entero: enteros.has(k) })}</label>`).join("")}</div></div>`;
+  }).join("");
+}
+
+function pintarHistorial() {
+  return `<div class="tarjeta"><h2>Últimos cambios</h2><div id="listaHistorial" class="nota">Cargando…</div></div>`;
+}
+
+function diferencias(antes, despues, ruta = "", salida = []) {
+  if (typeof despues !== "object" || despues === null) {
+    if (antes !== despues) salida.push([ruta, antes, despues]);
+    return salida;
+  }
+  for (const k of Object.keys(despues)) diferencias(antes?.[k], despues[k], ruta ? `${ruta}.${k}` : k, salida);
+  return salida;
+}
+
+function rutaLegible(id, ruta) {
+  const fila = estado.filas.get(id);
+  const datos = fila ? datosDe(id) : null;
+  return ruta.split(".").map((p, i, partes) => {
+    if (/^\d+$/.test(p)) {
+      const contenedor = leerRuta(datos, partes.slice(0, i).join("."));
+      const elemento = contenedor?.[+p];
+      return elemento?.etiqueta || elemento?.enemigo || elemento?.nombre || elemento?.clave || `#${+p + 1}`;
+    }
+    return NOMBRES_DE_CAMPOS[p] || (p === "niveles" || p === "enemigos" || p === "efectos" || p === "materiales" ? "" : p);
+  }).filter(Boolean).join(" › ");
+}
+
+async function cargarHistorial() {
+  const { data, error } = await supa.from("historial").select("*").order("cuando", { ascending: false }).limit(300);
+  const caja = $("listaHistorial");
+  if (!caja) return;
+  if (error) { caja.textContent = estado.editor ? "No se pudo leer el historial: " + error.message : "El historial lo ven solo los editores."; return; }
+  if (!data.length) { caja.textContent = "Todavía no hay cambios."; return; }
+  caja.innerHTML = `<div class="tabla"><table>
+    <tr><th class="texto">Cuándo</th><th class="texto">Quién</th><th class="texto">Qué</th><th class="texto">Cambios</th><th class="texto">Nota</th></tr>
+    ${data.map((h) => `<tr>
+      <td class="texto">${new Date(h.cuando).toLocaleString("es-AR")}</td>
+      <td class="texto">${esc(h.quien)}</td>
+      <td class="texto">${esc(estado.filas.get(h.entidad)?.nombre || h.entidad)}</td>
+      <td class="texto diff">${diferencias(h.antes, h.despues).map(([r, a, d]) => `${esc(rutaLegible(h.entidad, r))}: ${esc(limpio(a))} → <b>${esc(limpio(d))}</b>`).join("<br>")}</td>
+      <td class="texto">${esc(h.nota)}</td></tr>`).join("")}
+  </table></div>`;
+}
+
+function pintarCargar() {
+  return `<div class="tarjeta">
+    <h2>Cargar los valores del proyecto</h2>
+    <p>En Unity: <b>Tools › Balance › Exportar valores del proyecto</b>. Eso genera <code>Balance/valores_del_proyecto.json</code>. Elegilo acá:</p>
+    <div class="fila"><input type="file" id="archivoDelProyecto" accept=".json"></div>
+    <label class="fila"><input type="checkbox" id="pisarValores"> Pisar también lo que cambiaron los QA (vuelve todo a los valores del juego)</label>
+    <p class="nota">Sin marcar, solo se actualiza la columna "valor del juego" y se agregan torres, enemigos u oleadas nuevas. Lo que los QA ya cambiaron se mantiene.</p>
+    <button id="subirValores" class="principal">Cargar</button>
+    <p id="resultadoCarga" class="nota"></p>
+  </div>
+  <div class="tarjeta">
+    <h2>Cargar una propuesta de balance</h2>
+    <p>Una propuesta trae valores nuevos para probar. Entra como cambios sin guardar: los ves en amarillo en cada pestaña y no se aplica nada hasta que escribas la nota y toques <b>Guardar</b>. "Volver al valor del juego" la deshace en cualquier momento.</p>
+    <div class="fila"><input type="file" id="archivoDePropuesta" accept=".json"></div>
+    <button id="cargarPropuesta" class="principal">Ver la propuesta</button>
+  </div>`;
+}
+
+async function subirValoresDelProyecto() {
+  const archivo = $("archivoDelProyecto").files[0];
+  if (!archivo) return aviso("Elegí el archivo valores_del_proyecto.json");
+  let json;
+  try { json = JSON.parse(await archivo.text()); } catch { return aviso("El archivo no es un JSON válido"); }
+  if (!Array.isArray(json.filas)) return aviso("El archivo no tiene filas");
+  const pisar = $("pisarValores").checked;
+  if (pisar && !confirm("Esto borra los cambios de los QA y deja todo como en el juego. ¿Seguro?")) return;
+  $("subirValores").disabled = true;
+  const { data, error } = await supa.rpc("cargar_valores_del_proyecto", { filas: json.filas, pisar });
+  $("subirValores").disabled = false;
+  if (error) { $("resultadoCarga").textContent = "Error: " + error.message; return; }
+  $("resultadoCarga").textContent = `Listo: ${data} filas cargadas (exportado ${json.exportado || ""}).`;
+  await cargarFilas();
+}
+
+async function cargarPropuesta() {
+  const archivo = $("archivoDePropuesta").files[0];
+  if (!archivo) return aviso("Elegí el archivo de la propuesta");
+  let json;
+  try { json = JSON.parse(await archivo.text()); } catch { return aviso("El archivo no es un JSON válido"); }
+  if (!Array.isArray(json.filas)) return aviso("El archivo no tiene filas");
+  let cambiadas = 0, faltan = 0;
+  for (const f of json.filas) {
+    const fila = estado.filas.get(f.id);
+    if (!fila) { faltan++; continue; }
+    const nuevo = { ...copia(datosDe(f.id)), ...copia(f.datos) };
+    if (JSON.stringify(nuevo) === JSON.stringify(fila.datos)) continue;
+    estado.borradores.set(f.id, nuevo);
+    cambiadas++;
+  }
+  $("notaDelCambio").value = json.propuesta || "Propuesta de balance";
+  dibujar();
+  aviso(`Propuesta cargada: ${cambiadas} cosas cambiadas sin guardar${faltan ? `, ${faltan} que no están en el panel (volvé a cargar los valores del proyecto)` : ""}. Revisalas en cada pestaña y tocá Guardar.`, 10);
+}
+
+async function guardar() {
+  const nota = $("notaDelCambio").value.trim();
+  if (!nota && !confirm("No escribiste por qué cambiás esto. ¿Guardar igual?")) return;
+  $("guardar").disabled = true;
+  const errores = [];
+  for (const [id, datos] of estado.borradores) {
+    const { error } = await supa.from("entidades").update({ datos, ultima_nota: nota }).eq("id", id);
+    if (error) errores.push(`${estado.filas.get(id)?.nombre || id}: ${error.message}`);
+    else estado.borradores.delete(id);
+  }
+  $("guardar").disabled = false;
+  if (errores.length) aviso("No se guardó todo: " + errores.join(" · "), 8);
+  else { aviso("Guardado. En el juego se ve al reiniciar o con F9."); $("notaDelCambio").value = ""; }
+  await cargarFilas();
+}
+
+function conCamposNuevos(fila) {
+  const esObjeto = (o) => o && typeof o === "object" && !Array.isArray(o);
+  if (esObjeto(fila.proyecto) && esObjeto(fila.datos)) fila.datos = { ...fila.proyecto, ...fila.datos };
+  return fila;
+}
+
+async function cargarFilas() {
+  const { data, error } = await supa.from("entidades").select("*");
+  if (error) { aviso("No se pudo leer el balance: " + error.message, 8); return; }
+  estado.filas = new Map(data.map((f) => [f.id, conCamposNuevos(f)]));
+  for (const id of [...estado.borradores.keys()]) if (!estado.filas.has(id)) estado.borradores.delete(id);
+  dibujar();
+}
+
+function escucharCambiosDeOtros() {
+  supa.channel("entidades").on("postgres_changes", { event: "*", schema: "public", table: "entidades" }, (cambio) => {
+    const fila = cambio.new;
+    if (!fila?.id) return;
+    estado.filas.set(fila.id, conCamposNuevos(fila));
+    if (estado.borradores.has(fila.id)) aviso(`${fila.nombre} lo cambió ${fila.actualizado_por} mientras lo editabas. Si guardás, pisás su cambio.`, 8);
+    if (!document.activeElement?.dataset?.ruta) dibujar();
+  }).subscribe();
+}
+
+document.addEventListener("input", (ev) => {
+  const t = ev.target;
+  if (t.dataset.umbral) {
+    estado.umbrales[t.dataset.umbral] = Math.max(1, +t.value || 1);
+    guardarLocal("umbrales2", estado.umbrales);
+    return;
+  }
+  if (!t.dataset.ruta || t.value === "" || !isFinite(+t.value)) return;
+  const id = t.dataset.id;
+  const borrador = estado.borradores.get(id) || copia(estado.filas.get(id).datos);
+  let valor = +t.value;
+  if (t.dataset.entero === "1") valor = Math.round(valor);
+  escribirRuta(borrador, t.dataset.ruta, valor);
+  if (JSON.stringify(borrador) === JSON.stringify(estado.filas.get(id).datos)) estado.borradores.delete(id);
+  else estado.borradores.set(id, borrador);
+  const original = leerRuta(estado.filas.get(id).proyecto, t.dataset.ruta);
+  t.classList.toggle("cambiado", original !== undefined && Math.abs(valor - original) > 1e-6);
+  const n = estado.borradores.size;
+  $("barra").classList.toggle("visible", n > 0);
+  $("pendientes").textContent = `${n} ${n === 1 ? "cosa cambiada" : "cosas cambiadas"} sin guardar`;
+});
+
+document.addEventListener("change", (ev) => {
+  const t = ev.target;
+  if (t.dataset.ruta || t.dataset.umbral) return setTimeout(dibujar, 0);
+  if (t.id === "metricaDeTorres") { estado.metricaDeTorres = t.value; return dibujar(); }
+  if (t.id === "torreParaComparar") { estado.torreParaComparar = t.value; estado.nivelParaComparar = 0; return dibujar(); }
+  if (t.id === "nivelParaComparar") { estado.nivelParaComparar = +t.value; return dibujar(); }
+});
+
+document.addEventListener("keyup", (ev) => {
+  if (ev.target.id !== "filtroDeEnemigos") return;
+  estado.filtroDeEnemigos = ev.target.value;
+  dibujar();
+  const filtro = $("filtroDeEnemigos");
+  filtro.focus();
+  filtro.setSelectionRange(filtro.value.length, filtro.value.length);
+});
+
+document.addEventListener("click", async (ev) => {
+  const t = ev.target.closest("button, a");
+  if (!t) return;
+  if (t.dataset.pestania) { estado.pestania = t.dataset.pestania; dibujar(); window.scrollTo(0, 0); return; }
+  if (t.dataset.ir) {
+    estado.pestania = t.dataset.ir;
+    dibujar();
+    document.getElementById(t.dataset.ancla)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+  if (t.dataset.restaurar) {
+    const id = t.dataset.restaurar;
+    const fila = estado.filas.get(id);
+    if (JSON.stringify(fila.datos) === JSON.stringify(fila.proyecto)) estado.borradores.delete(id);
+    else estado.borradores.set(id, copia(fila.proyecto));
+    dibujar();
+    return;
+  }
+  if (t.id === "guardar") return guardar();
+  if (t.id === "descartar") { if (confirm("¿Descartar todo lo que no guardaste?")) { estado.borradores.clear(); dibujar(); } return; }
+  if (t.id === "subirValores") return subirValoresDelProyecto();
+  if (t.id === "cargarPropuesta") return cargarPropuesta();
+  if (t.id === "descargarJson") {
+    const datos = { exportado: new Date().toISOString(), filas: [...estado.filas.values()].map((f) => ({ id: f.id, categoria: f.categoria, nombre: f.nombre, datos: datosDe(f.id) })) };
+    const enlace = document.createElement("a");
+    enlace.href = URL.createObjectURL(new Blob([JSON.stringify(datos, null, 2)], { type: "application/json" }));
+    enlace.download = "balance.json";
+    enlace.click();
+    return;
+  }
+  if (t.id === "salir") { await supa.auth.signOut(); location.reload(); }
+});
+
+window.addEventListener("beforeunload", (ev) => {
+  if (estado.borradores.size) { ev.preventDefault(); ev.returnValue = ""; }
+});
+
+$("formEntrada").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  $("errorEntrada").textContent = "";
+  const { error } = await supa.auth.signInWithPassword({ email: $("mail").value.trim(), password: $("clave").value });
+  if (error) $("errorEntrada").textContent = "No se pudo entrar: " + error.message;
+  else entrar();
+});
+
+async function entrar() {
+  const { data } = await supa.auth.getSession();
+  const sesion = data.session;
+  if (!sesion) { $("entrada").hidden = false; $("app").hidden = true; return; }
+  const { data: editor } = await supa.rpc("es_editor");
+  estado.editor = !!editor;
+  $("entrada").hidden = true;
+  $("app").hidden = false;
+  $("salir").hidden = false;
+  $("quien").textContent = sesion.user.email + (estado.editor ? " · editor" : " · solo lectura");
+  await cargarFilas();
+  escucharCambiosDeOtros();
+}
+
+if (!URL_DE_SUPABASE || !CLAVE_PUBLICA) {
+  $("falta").hidden = false;
+} else {
+  supa = supabase.createClient(URL_DE_SUPABASE, CLAVE_PUBLICA);
+  entrar();
+}
+</script>
+</body>
+</html>
