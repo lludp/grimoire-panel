@@ -74,6 +74,7 @@
   .diff b { color: var(--texto); font-weight: 500; }
   [hidden] { display: none !important; }
   @media (max-width: 700px) { main { padding: 10px; } .barra { top: 0; position: static; } }
+tr.apagada td { opacity: .5; }
 </style>
 </head>
 <body>
@@ -119,8 +120,8 @@ const URL_DE_SUPABASE = "https://sbxoxvunfmeiufeaxtyi.supabase.co";
 const CLAVE_PUBLICA = "sb_publishable_RQS9lDcf_AaJnaTidNNpBQ_P7ZEA9UQ";
 
 const PESTANIAS = [
-  ["resumen", "Resumen"], ["torres", "Torres"], ["enemigos", "Enemigos"], ["oleadas", "Oleadas"],
-  ["items", "Ítems"], ["general", "General"], ["historial", "Historial"], ["cargar", "Cargar del proyecto"],
+  ["resumen", "Resumen"], ["progresion", "Progresión XP"], ["torres", "Torres"], ["enemigos", "Enemigos"], ["oleadas", "Oleadas"],
+  ["misiones", "Misiones"], ["items", "Ítems"], ["general", "General"], ["historial", "Historial"], ["cargar", "Cargar del proyecto"],
 ];
 
 const NOMBRES_DE_CAMPOS = {
@@ -144,9 +145,19 @@ const NOMBRES_DE_CAMPOS = {
   guardiaHasta: "La guardia cubre hasta (s)", esperaEntreBloqueos: "Espera entre bloqueos (s)",
   anguloQueCubre: "Ángulo que cubre (°)", pausaDeLaEstaminaAlBloquear: "Pausa de la estamina al bloquear (s)",
   reduccionConGuardiaRota: "Con guardia rota evita (0.5 = la mitad)", segundosConLaGuardiaRota: "Segundos con la guardia rota",
+  xpOnKill: "XP", xpAlTerminar: "XP al terminar", minutosHastaLaOleada: "Minutos hasta la oleada",
+  nivelMaximo: "Nivel máximo", xpDelPrimerNivel: "XP para pasar del nivel 1 al 2", crecimientoPorNivel: "Crecimiento de la XP por nivel (0.0165 = 1,65%)",
 };
 
-const NOMBRES_DE_GENERALES = { WaveManager: "Oleadas", CastleStats: "Castillo", PlayerStats: "Jugador", PlayerMovement: "Estamina", BloqueoConEspada: "Bloqueo con la espada" };
+const NOMBRES_DE_MISIONES = {
+  2: "Misión 2 · Las pociones del alquimista", 3: "Misión 3 · El rescate del forjador", 4: "Misión 4 · El establo",
+  5: "Misión 5 · Resistencia al frío", 6: "Misión 6 · El resurgir del Pueblo de Forjadores", 7: "Misión 7 · El rey demonio",
+  8: "Misión 8 · Las pampas", 9: "Misión 9 · El volcán", 10: "Misión 10 · El rey demonio",
+};
+
+const NOMBRES_DE_GENERALES = { WaveManager: "Oleadas", CastleStats: "Castillo", PlayerStats: "Jugador", PlayerMovement: "Estamina", BloqueoConEspada: "Bloqueo con la espada",
+  TestFirstPersonRig: "Espadazo del jugador", PlayerInteraction: "Alcance del jugador", LevelDataSO: "Curva de niveles (XP)", MisionesPorOleada: "Misiones (oleada para desbloquear)" };
+const GENERALES_CON_PESTANIA = new Set(["LevelDataSO", "MisionesPorOleada"]);
 
 const PESTANIA_DE_CATEGORIA = { torre: "torres", enemigo: "enemigos", oleada: "oleadas", item: "items", general: "general" };
 
@@ -268,21 +279,54 @@ function multiplicadoresDeOleada(datos) {
 }
 
 function calcularOleada(fila, datos = datosDe(fila.id)) {
-  let vida = 0, oro = 0, segundos = 0, desconocidos = 0, cantidad = 0;
+  let vida = 0, oro = 0, segundos = 0, desconocidos = 0, cantidad = 0, xpEnemigos = 0;
   for (const e of datos.enemigos || []) {
     const enemigo = enemigoPorPrefab(e.enemigo);
     const d = enemigo ? datosDe(enemigo.id) : null;
     if (!d) desconocidos++;
     vida += e.cantidad * (d?.maxHealth || 0);
     oro += e.cantidad * (d?.oroAlMorir || 0);
+    xpEnemigos += e.cantidad * (d?.xpAlMorir ?? d?.xpOnKill ?? 0);
     segundos += e.cantidad * e.segundosEntreSpawns;
     cantidad += e.cantidad;
   }
   const mult = multiplicadoresDeOleada(datos);
   vida *= mult.vida;
   oro *= mult.oro;
-  return { vida, oro, segundos, cantidad, vidaPorSegundo: segundos > 0 ? vida / segundos : vida, desconocidos, mult };
+  const xpAlTerminar = datos.xpAlTerminar || 0;
+  return { vida, oro, segundos, cantidad, vidaPorSegundo: segundos > 0 ? vida / segundos : vida, desconocidos, mult,
+    xpEnemigos, xpAlTerminar, xp: xpEnemigos + xpAlTerminar };
 }
+
+function curvaDeNiveles() {
+  const d = datosDe("general/LevelDataSO") || {};
+  const maximo = Math.max(1, d.nivelMaximo ?? 80), primero = d.xpDelPrimerNivel ?? 860, crece = d.crecimientoPorNivel ?? 0.0165;
+  const xpParaPasar = (nivel) => Math.round(primero * Math.pow(1 + crece, Math.min(Math.max(nivel, 1), maximo) - 1));
+  return { maximo, xpParaPasar };
+}
+
+function nivelConXp(xp, curva = curvaDeNiveles()) {
+  let nivel = 1, resto = xp;
+  while (nivel < curva.maximo && resto >= curva.xpParaPasar(nivel)) { resto -= curva.xpParaPasar(nivel); nivel++; }
+  return { nivel, resto, falta: curva.xpParaPasar(nivel) };
+}
+
+function progresionDeOleadas() {
+  const curva = curvaDeNiveles();
+  const descanso = (datosDe("general/WaveManager") || {}).restTimeBetweenWaves ?? 20;
+  let xpAcumulada = 0, segundosDeJuego = 0;
+  return oleadasEnOrden().map((o, i) => {
+    const d = datosDe(o.id), c = calcularOleada(o, d);
+    const espera = d.minutosHastaLaOleada > 0 ? d.minutosHastaLaOleada * 60 : descanso;
+    segundosDeJuego += espera;
+    const llegaEn = segundosDeJuego;
+    segundosDeJuego += c.segundos;
+    xpAcumulada += c.xp;
+    return { fila: o, numero: i + 1, c, espera, llegaEn, terminaEn: segundosDeJuego, xpAcumulada, ...nivelConXp(xpAcumulada, curva) };
+  });
+}
+
+const minutos = (segundos) => `${redondo(segundos / 60, 1)} min`;
 
 function oleadasEnOrden() {
   return filasDe("oleada").filter((f) => (datosDe(f.id).orden ?? -1) >= 0).sort((a, b) => datosDe(a.id).orden - datosDe(b.id).orden);
@@ -415,11 +459,12 @@ function dibujar() {
   $("pestanias").innerHTML = PESTANIAS.filter(([clave]) => clave !== "cargar" || estado.editor)
     .map(([clave, nombre]) => `<button data-pestania="${clave}" class="${estado.pestania === clave ? "activa" : ""}">${nombre}</button>`).join("");
 
-  const pintores = { resumen: pintarResumen, torres: pintarTorres, enemigos: pintarEnemigos, oleadas: pintarOleadas,
-    items: pintarItems, general: pintarGeneral, historial: pintarHistorial, cargar: pintarCargar };
+  const pintores = { resumen: pintarResumen, progresion: pintarProgresion, torres: pintarTorres, enemigos: pintarEnemigos, oleadas: pintarOleadas,
+    misiones: pintarMisiones, items: pintarItems, general: pintarGeneral, historial: pintarHistorial, cargar: pintarCargar };
   $("contenido").innerHTML = pintores[estado.pestania]();
   if (estado.pestania === "torres") graficoDeTorres();
   if (estado.pestania === "oleadas") graficoDeOleadas();
+  if (estado.pestania === "progresion") graficoDeProgresion();
   if (estado.pestania === "historial") cargarHistorial();
 
   const n = estado.borradores.size;
@@ -625,10 +670,13 @@ function ordenDeCampo(c) {
 
 function pintarOleadas() {
   const principales = oleadasEnOrden();
+  const progreso = new Map(progresionDeOleadas().map((p) => [p.fila.id, p]));
   const otras = filasDe("oleada").filter((f) => (datosDe(f.id).orden ?? -1) < 0).sort((a, b) => a.id.localeCompare(b.id));
   const conAlerta = new Set(calcularAlertas().map((a) => a.ancla));
   const tabla = (lista) => `<div class="tabla"><table>
-    <tr><th class="texto">Oleada</th><th class="texto">Enemigos (cantidad × cada cuántos segundos sale)</th><th title="Multiplica la vida de cada enemigo de esta oleada">× vida</th><th title="Multiplica el oro de cada enemigo de esta oleada">× oro</th><th>Vida total</th><th>Oro total</th><th>Dura</th><th>Vida que entra por seg.</th><th></th></tr>
+    <tr><th class="texto">Oleada</th><th class="texto">Enemigos (cantidad × cada cuántos segundos sale)</th><th title="Multiplica la vida de cada enemigo de esta oleada">× vida</th><th title="Multiplica el oro de cada enemigo de esta oleada">× oro</th><th>Vida total</th><th>Oro total</th><th>Dura</th><th>Vida que entra por seg.</th>
+    <th title="Minutos desde que termina la oleada anterior hasta que llega esta. 0 = usa el descanso entre oleadas de la pestaña General">Minutos hasta la oleada</th><th>Llega al minuto</th>
+    <th title="Suma de la XP de cada enemigo de la oleada">XP de los enemigos</th><th title="XP extra por terminar la oleada">XP al terminar</th><th>XP total</th><th title="Contando solo la XP de las oleadas, sin misiones ni enemigos del mundo abierto">Nivel al terminar</th><th></th></tr>
     ${lista.map((o) => {
       const d = datosDe(o.id), c = calcularOleada(o, d);
       return `<tr id="${esc(o.id)}" class="${conAlerta.has(o.id) ? "alerta" : ""}">
@@ -640,6 +688,12 @@ function pintarOleadas() {
         <td class="calculo" title="Con todos los multiplicadores: × ${redondo(c.mult.oro)}">${redondo(c.oro, 0)}</td>
         <td class="calculo">${redondo(c.segundos, 0)} s</td>
         <td class="calculo">${redondo(c.vidaPorSegundo, 1)}</td>
+        <td>${d.minutosHastaLaOleada !== undefined ? campo(o.id, "minutosHastaLaOleada", { paso: 0.5 }) : "—"}</td>
+        <td class="calculo">${progreso.has(o.id) ? minutos(progreso.get(o.id).llegaEn) : "—"}</td>
+        <td class="calculo">${redondo(c.xpEnemigos, 0)}</td>
+        <td>${d.xpAlTerminar !== undefined ? campo(o.id, "xpAlTerminar", { entero: true }) : "—"}</td>
+        <td class="calculo">${redondo(c.xp, 0)}</td>
+        <td class="calculo">${progreso.has(o.id) ? `Nivel ${progreso.get(o.id).nivel}` : "—"}</td>
         <td>${botonRestaurar(o.id)}</td></tr>`;
     }).join("")}
   </table></div>`;
@@ -647,6 +701,7 @@ function pintarOleadas() {
   <div class="tarjeta">
     <h2>Curva de las oleadas <small>las ${principales.length} del Tower Defense, en orden</small></h2>
     <div class="grafico"><canvas id="graficoOleadas"></canvas></div>
+    <p class="nota">"Minutos hasta la oleada" en 0 usa el descanso entre oleadas de la pestaña General. "Llega al minuto" suma esas esperas y lo que dura cada oleada. "Nivel al terminar" cuenta solo la XP de las oleadas (enemigos + XP al terminar); las misiones y el mundo abierto suman aparte. La curva completa está en la pestaña Progresión XP.</p>
     <p class="nota">"Vida que entra por segundo" sirve para comparar con el DPS de las torres: si tus torres tiran menos que eso, los enemigos se acumulan. "× vida" y "× oro" multiplican la vida y el oro de cada enemigo de esa oleada; la vida y el oro total ya los incluyen, junto con la vida y el oro extra por oleada de la pestaña General.</p>
   </div>
   <div class="tarjeta"><h2>Tower Defense</h2>${tabla(principales)}</div>
@@ -704,8 +759,105 @@ function pintarItems() {
   }).join("") || `<p class="nota">No hay ítems cargados.</p>`;
 }
 
+function pintarMisiones() {
+  const fila = estado.filas.get("general/MisionesPorOleada");
+  if (!fila) return `<div class="tarjeta"><p class="nota">Todavía no están las misiones en el panel: en Unity, Tools › Balance › Exportar valores del proyecto, y después cargalo en la pestaña "Cargar del proyecto".</p></div>`;
+  const progreso = progresionDeOleadas();
+  const d = datosDe(fila.id);
+  const claves = Object.keys(d).filter((k) => /^oleadaParaLaMision\d+$/.test(k)).sort((a, b) => +a.match(/\d+/)[0] - +b.match(/\d+/)[0]);
+  return `<div class="tarjeta" id="${esc(fila.id)}">
+    <h2>Oleada necesaria para cada misión ${botonRestaurar(fila.id)} ${infoDeCambio(fila.id)}</h2>
+    <p class="nota">La misión se puede empezar recién cuando se ganaron esas oleadas. 0 = no pide oleadas (solo lo que pida la historia, por ejemplo terminar la misión anterior). La misión 1 es el tutorial y no se cuenta.</p>
+    <div class="tabla"><table>
+      <tr><th class="texto">Misión</th><th>Oleadas ganadas que pide</th><th>Se desbloquea cerca del minuto</th><th>Nivel del jugador en ese momento</th></tr>
+      ${claves.map((k) => {
+        const numero = +k.match(/\d+/)[0], oleada = d[k];
+        const p = oleada > 0 ? progreso[Math.min(oleada, progreso.length) - 1] : null;
+        return `<tr><td class="texto">${esc(NOMBRES_DE_MISIONES[numero] || "Misión " + numero)}</td>
+          <td>${campo(fila.id, k, { entero: true })}</td>
+          <td class="calculo">${p ? minutos(p.terminaEn) : "desde el arranque"}</td>
+          <td class="calculo">${p ? "Nivel " + p.nivel : "—"}</td></tr>`;
+      }).join("")}
+    </table></div></div>`;
+}
+
+function desbloqueosPorNivel() {
+  const porNivel = new Map();
+  const agregar = (nivel, cosa) => {
+    if (!(nivel > 0)) return;
+    if (!porNivel.has(nivel)) porNivel.set(nivel, []);
+    porNivel.get(nivel).push(cosa);
+  };
+  for (const t of filasDe("torre")) {
+    (datosDe(t.id).niveles || []).forEach((n, i) => agregar(n.nivelRequerido,
+      { tipo: "Torre", nombre: `${t.nombre} · ${n.etiqueta || (i ? "Nivel " + i : "Base")}`, id: t.id, ruta: `niveles.${i}.nivelRequerido` }));
+  }
+  for (const it of filasDe("item")) {
+    const d = datosDe(it.id);
+    agregar(d.nivelDesbloqueo, { tipo: d.categoria || "Ítem", nombre: `${it.nombre} · se desbloquea`, id: it.id, ruta: "nivelDesbloqueo" });
+    (d.niveles || []).forEach((n, i) => {
+      if (i === 0) return;
+      agregar(n.nivelRequerido, { tipo: d.categoria || "Ítem", nombre: `${it.nombre} · ${n.etiqueta || "Nivel " + i}`, id: it.id, ruta: `niveles.${i}.nivelRequerido` });
+    });
+  }
+  return porNivel;
+}
+
+function pintarProgresion() {
+  const curva = curvaDeNiveles();
+  const progreso = progresionDeOleadas();
+  const desbloqueos = desbloqueosPorNivel();
+  const filaCurva = estado.filas.get("general/LevelDataSO");
+  const oleadaDelNivel = (nivel) => progreso.find((p) => p.nivel >= nivel);
+  let acumulada = 0;
+  const filas = [];
+  for (let nivel = 1; nivel <= curva.maximo; nivel++) {
+    const llega = nivel === 1 ? null : oleadaDelNivel(nivel);
+    const cosas = desbloqueos.get(nivel) || [];
+    filas.push(`<tr class="${cosas.length ? "" : "apagada"}"><td class="texto">Nivel ${nivel}</td>
+      <td class="calculo">${nivel < curva.maximo ? redondo(curva.xpParaPasar(nivel), 0) : "máximo"}</td>
+      <td class="calculo">${redondo(acumulada, 0)}</td>
+      <td class="calculo">${nivel === 1 ? "al arrancar" : llega ? `Oleada ${llega.numero} · ${minutos(llega.terminaEn)}` : "no se llega con las oleadas"}</td>
+      <td class="texto">${cosas.map((c) => `<div><span class="chip">${esc(c.tipo)}</span> ${esc(c.nombre)} · nivel ${campo(c.id, c.ruta, { entero: true })}</div>`).join("")}</td></tr>`);
+    if (nivel < curva.maximo) acumulada += curva.xpParaPasar(nivel);
+  }
+  const ultima = progreso[progreso.length - 1];
+  return `
+  <div class="tarjeta">
+    <h2>Curva de niveles ${filaCurva ? botonRestaurar(filaCurva.id) + " " + infoDeCambio(filaCurva.id) : ""}</h2>
+    ${filaCurva ? `<div class="campos">${Object.keys(datosDe(filaCurva.id)).map((k) => `<label>${esc(NOMBRES_DE_CAMPOS[k] || k)} ${campo(filaCurva.id, k, { entero: k !== "crecimientoPorNivel", paso: k === "crecimientoPorNivel" ? 0.001 : undefined })}</label>`).join("")}</div>`
+      : `<p class="nota">Falta la curva de niveles en el panel: exportá los valores del proyecto y cargalos.</p>`}
+    <p class="nota">Con las oleadas solas, al terminar la oleada ${ultima ? ultima.numero : "—"} el jugador queda en el nivel ${ultima ? ultima.nivel : "—"} (${redondo(ultima?.xpAcumulada ?? 0, 0)} de XP, minuto ${ultima ? redondo(ultima.terminaEn / 60, 0) : "—"}). Las misiones y los enemigos del mundo abierto dan XP aparte, así que en la partida se llega antes.</p>
+    <div class="grafico"><canvas id="graficoProgresion"></canvas></div>
+  </div>
+  <div class="tarjeta">
+    <h2>Qué se desbloquea en cada nivel</h2>
+    <p class="nota">Torres, mejoras de torres y herramientas/ítems ordenados por el nivel que piden. Cambiar el número mueve la fila al nivel nuevo. "Se llega en" es la primera oleada en la que se alcanza ese nivel contando solo la XP de las oleadas.</p>
+    <div class="tabla"><table>
+      <tr><th class="texto">Nivel</th><th>XP para pasar al siguiente</th><th>XP acumulada</th><th>Se llega en</th><th class="texto">Se desbloquea</th></tr>
+      ${filas.join("")}
+    </table></div>
+  </div>`;
+}
+
+function graficoDeProgresion() {
+  const progreso = progresionDeOleadas();
+  if (!$("graficoProgresion")) return;
+  estado.graficos.push(new Chart($("graficoProgresion"), {
+    type: "line",
+    data: {
+      labels: progreso.map((p) => p.numero),
+      datasets: [
+        { label: "Nivel al terminar la oleada", data: progreso.map((p) => p.nivel), borderColor: "#d8a84e", backgroundColor: "#d8a84e", tension: .2 },
+        { label: "XP de la oleada", data: progreso.map((p) => Math.round(p.c.xp)), borderColor: "#5aa2d8", backgroundColor: "#5aa2d8", tension: .2, yAxisID: "y2" },
+      ],
+    },
+    options: opcionesDeGrafico(true),
+  }));
+}
+
 function pintarGeneral() {
-  return filasDe("general").map((f) => {
+  return filasDe("general").filter((f) => !GENERALES_CON_PESTANIA.has(f.nombre)).map((f) => {
     const enteros = new Set(f.meta?.enteros || []);
     return `<div class="tarjeta" id="${esc(f.id)}"><h3>${esc(NOMBRES_DE_GENERALES[f.nombre] || f.nombre)} ${botonRestaurar(f.id)} ${infoDeCambio(f.id)}</h3>
       <div class="campos">${Object.keys(datosDe(f.id)).map((k) => `<label>${esc(NOMBRES_DE_CAMPOS[k] || k)} ${campo(f.id, k, { entero: enteros.has(k) })}</label>`).join("")}</div></div>`;
