@@ -150,7 +150,7 @@ const NOMBRES_DE_CAMPOS = {
 };
 
 const NOMBRES_DE_MISIONES = {
-  2: "Misión 2 · Las pociones del alquimista", 3: "Misión 3 · El rescate del forjador", 4: "Misión 4 · El establo",
+  1: "Misión 1 · Tutorial: defendé la aldea", 2: "Misión 2 · Las pociones del alquimista", 3: "Misión 3 · El rescate del forjador", 4: "Misión 4 · El establo",
   5: "Misión 5 · Resistencia al frío", 6: "Misión 6 · El resurgir del Pueblo de Forjadores", 7: "Misión 7 · El rey demonio",
   8: "Misión 8 · Las pampas", 9: "Misión 9 · El volcán", 10: "Misión 10 · El rey demonio",
 };
@@ -172,6 +172,7 @@ const estado = {
   torreParaComparar: "",
   nivelParaComparar: 0,
   filtroDeEnemigos: "",
+  sumarMisiones: false,
   umbrales: leerLocal("umbrales2", UMBRALES_POR_DEFECTO),
 };
 
@@ -311,12 +312,27 @@ function nivelConXp(xp, curva = curvaDeNiveles()) {
   return { nivel, resto, falta: curva.xpParaPasar(nivel) };
 }
 
+function xpDeMisionesPorOleada() {
+  const d = datosDe("general/MisionesPorOleada");
+  const porOleada = new Map();
+  if (!d || !estado.sumarMisiones) return porOleada;
+  for (let m = 1; m <= 10; m++) {
+    const xp = d["xpDeLaMision" + m] || 0;
+    if (!xp) continue;
+    const oleada = Math.max(1, d["oleadaParaLaMision" + m] || 1);
+    porOleada.set(oleada, (porOleada.get(oleada) || 0) + xp);
+  }
+  return porOleada;
+}
+
 function progresionDeOleadas() {
   const curva = curvaDeNiveles();
   const descanso = (datosDe("general/WaveManager") || {}).restTimeBetweenWaves ?? 20;
+  const xpDeMisiones = xpDeMisionesPorOleada();
   let xpAcumulada = 0, segundosDeJuego = 0;
   return oleadasEnOrden().map((o, i) => {
     const d = datosDe(o.id), c = calcularOleada(o, d);
+    xpAcumulada += xpDeMisiones.get(i + 1) || 0;
     const espera = d.minutosHastaLaOleada > 0 ? d.minutosHastaLaOleada * 60 : descanso;
     segundosDeJuego += espera;
     const llegaEn = segundosDeJuego;
@@ -676,7 +692,7 @@ function pintarOleadas() {
   const tabla = (lista) => `<div class="tabla"><table>
     <tr><th class="texto">Oleada</th><th class="texto">Enemigos (cantidad × cada cuántos segundos sale)</th><th title="Multiplica la vida de cada enemigo de esta oleada">× vida</th><th title="Multiplica el oro de cada enemigo de esta oleada">× oro</th><th>Vida total</th><th>Oro total</th><th>Dura</th><th>Vida que entra por seg.</th>
     <th title="Minutos desde que termina la oleada anterior hasta que llega esta. 0 = usa el descanso entre oleadas de la pestaña General">Minutos hasta la oleada</th><th>Llega al minuto</th>
-    <th title="Suma de la XP de cada enemigo de la oleada">XP de los enemigos</th><th title="XP extra por terminar la oleada">XP al terminar</th><th>XP total</th><th title="Contando solo la XP de las oleadas, sin misiones ni enemigos del mundo abierto">Nivel al terminar</th><th></th></tr>
+    <th title="Suma de la XP de cada enemigo de la oleada">XP de los enemigos</th><th title="XP extra por terminar la oleada">XP al terminar</th><th>XP total</th><th title="Sin los enemigos del mundo abierto">Nivel al terminar</th><th></th></tr>
     ${lista.map((o) => {
       const d = datosDe(o.id), c = calcularOleada(o, d);
       return `<tr id="${esc(o.id)}" class="${conAlerta.has(o.id) ? "alerta" : ""}">
@@ -701,7 +717,7 @@ function pintarOleadas() {
   <div class="tarjeta">
     <h2>Curva de las oleadas <small>las ${principales.length} del Tower Defense, en orden</small></h2>
     <div class="grafico"><canvas id="graficoOleadas"></canvas></div>
-    <p class="nota">"Minutos hasta la oleada" en 0 usa el descanso entre oleadas de la pestaña General. "Llega al minuto" suma esas esperas y lo que dura cada oleada. "Nivel al terminar" cuenta solo la XP de las oleadas (enemigos + XP al terminar); las misiones y el mundo abierto suman aparte. La curva completa está en la pestaña Progresión XP.</p>
+    <p class="nota">"Minutos hasta la oleada" en 0 usa el descanso entre oleadas de la pestaña General. "Llega al minuto" suma esas esperas y lo que dura cada oleada. "Nivel al terminar" cuenta la XP de las oleadas (enemigos + XP al terminar) y, si está tildado en Progresión XP, la de las misiones; el mundo abierto suma aparte. La curva completa está en la pestaña Progresión XP.</p>
     <p class="nota">"Vida que entra por segundo" sirve para comparar con el DPS de las torres: si tus torres tiran menos que eso, los enemigos se acumulan. "× vida" y "× oro" multiplican la vida y el oro de cada enemigo de esa oleada; la vida y el oro total ya los incluyen, junto con la vida y el oro extra por oleada de la pestaña General.</p>
   </div>
   <div class="tarjeta"><h2>Tower Defense</h2>${tabla(principales)}</div>
@@ -764,20 +780,25 @@ function pintarMisiones() {
   if (!fila) return `<div class="tarjeta"><p class="nota">Todavía no están las misiones en el panel: en Unity, Tools › Balance › Exportar valores del proyecto, y después cargalo en la pestaña "Cargar del proyecto".</p></div>`;
   const progreso = progresionDeOleadas();
   const d = datosDe(fila.id);
-  const claves = Object.keys(d).filter((k) => /^oleadaParaLaMision\d+$/.test(k)).sort((a, b) => +a.match(/\d+/)[0] - +b.match(/\d+/)[0]);
+  const filas = [];
+  for (let m = 1; m <= 10; m++) {
+    const claveOleada = "oleadaParaLaMision" + m;
+    const tieneOleada = d[claveOleada] !== undefined;
+    const oleada = d[claveOleada] || 0;
+    const p = oleada > 0 ? progreso[Math.min(oleada, progreso.length) - 1] : null;
+    filas.push(`<tr><td class="texto">${esc(NOMBRES_DE_MISIONES[m] || "Misión " + m)}</td>
+      <td>${tieneOleada ? campo(fila.id, claveOleada, { entero: true }) : "—"}</td>
+      <td>${d["xpDeLaMision" + m] !== undefined ? campo(fila.id, "xpDeLaMision" + m, { entero: true }) : "—"}</td>
+      <td>${d["oroDeLaMision" + m] !== undefined ? campo(fila.id, "oroDeLaMision" + m, { entero: true }) : "—"}</td>
+      <td class="calculo">${p ? minutos(p.terminaEn) : "desde el arranque"}</td>
+      <td class="calculo">${p ? "Nivel " + p.nivel : "—"}</td></tr>`);
+  }
   return `<div class="tarjeta" id="${esc(fila.id)}">
-    <h2>Oleada necesaria para cada misión ${botonRestaurar(fila.id)} ${infoDeCambio(fila.id)}</h2>
-    <p class="nota">La misión se puede empezar recién cuando se ganaron esas oleadas. 0 = no pide oleadas (solo lo que pida la historia, por ejemplo terminar la misión anterior). La misión 1 es el tutorial y no se cuenta.</p>
+    <h2>Misiones ${botonRestaurar(fila.id)} ${infoDeCambio(fila.id)}</h2>
+    <p class="nota">"Oleadas ganadas que pide": la misión se puede empezar recién cuando se ganaron esas oleadas; 0 = no pide oleadas (solo lo que pida la historia, por ejemplo terminar la misión anterior). La misión 1 es el tutorial. "XP" y "Oro" son el premio al completarla.</p>
     <div class="tabla"><table>
-      <tr><th class="texto">Misión</th><th>Oleadas ganadas que pide</th><th>Se desbloquea cerca del minuto</th><th>Nivel del jugador en ese momento</th></tr>
-      ${claves.map((k) => {
-        const numero = +k.match(/\d+/)[0], oleada = d[k];
-        const p = oleada > 0 ? progreso[Math.min(oleada, progreso.length) - 1] : null;
-        return `<tr><td class="texto">${esc(NOMBRES_DE_MISIONES[numero] || "Misión " + numero)}</td>
-          <td>${campo(fila.id, k, { entero: true })}</td>
-          <td class="calculo">${p ? minutos(p.terminaEn) : "desde el arranque"}</td>
-          <td class="calculo">${p ? "Nivel " + p.nivel : "—"}</td></tr>`;
-      }).join("")}
+      <tr><th class="texto">Misión</th><th>Oleadas ganadas que pide</th><th>XP al completarla</th><th>Oro al completarla</th><th>Se desbloquea cerca del minuto</th><th>Nivel del jugador en ese momento</th></tr>
+      ${filas.join("")}
     </table></div></div>`;
 }
 
@@ -827,12 +848,13 @@ function pintarProgresion() {
     <h2>Curva de niveles ${filaCurva ? botonRestaurar(filaCurva.id) + " " + infoDeCambio(filaCurva.id) : ""}</h2>
     ${filaCurva ? `<div class="campos">${Object.keys(datosDe(filaCurva.id)).map((k) => `<label>${esc(NOMBRES_DE_CAMPOS[k] || k)} ${campo(filaCurva.id, k, { entero: k !== "crecimientoPorNivel", paso: k === "crecimientoPorNivel" ? 0.001 : undefined })}</label>`).join("")}</div>`
       : `<p class="nota">Falta la curva de niveles en el panel: exportá los valores del proyecto y cargalos.</p>`}
-    <p class="nota">Con las oleadas solas, al terminar la oleada ${ultima ? ultima.numero : "—"} el jugador queda en el nivel ${ultima ? ultima.nivel : "—"} (${redondo(ultima?.xpAcumulada ?? 0, 0)} de XP, minuto ${ultima ? redondo(ultima.terminaEn / 60, 0) : "—"}). Las misiones y los enemigos del mundo abierto dan XP aparte, así que en la partida se llega antes.</p>
+    <label class="fila"><input type="checkbox" id="sumarMisiones" ${estado.sumarMisiones ? "checked" : ""}> Sumar la XP de las misiones (cada una en la oleada que la desbloquea)</label>
+    <p class="nota">Al terminar la oleada ${ultima ? ultima.numero : "—"} el jugador queda en el nivel ${ultima ? ultima.nivel : "—"} (${redondo(ultima?.xpAcumulada ?? 0, 0)} de XP, minuto ${ultima ? redondo(ultima.terminaEn / 60, 0) : "—"}), contando las oleadas${estado.sumarMisiones ? " y las misiones" : ""}. Los enemigos del mundo abierto dan XP aparte, así que en la partida se llega antes.</p>
     <div class="grafico"><canvas id="graficoProgresion"></canvas></div>
   </div>
   <div class="tarjeta">
     <h2>Qué se desbloquea en cada nivel</h2>
-    <p class="nota">Torres, mejoras de torres y herramientas/ítems ordenados por el nivel que piden. Cambiar el número mueve la fila al nivel nuevo. "Se llega en" es la primera oleada en la que se alcanza ese nivel contando solo la XP de las oleadas.</p>
+    <p class="nota">Torres, mejoras de torres y herramientas/ítems ordenados por el nivel que piden. Cambiar el número mueve la fila al nivel nuevo. "Se llega en" es la primera oleada en la que se alcanza ese nivel.</p>
     <div class="tabla"><table>
       <tr><th class="texto">Nivel</th><th>XP para pasar al siguiente</th><th>XP acumulada</th><th>Se llega en</th><th class="texto">Se desbloquea</th></tr>
       ${filas.join("")}
@@ -1029,6 +1051,7 @@ document.addEventListener("change", (ev) => {
   if (t.id === "metricaDeTorres") { estado.metricaDeTorres = t.value; return dibujar(); }
   if (t.id === "torreParaComparar") { estado.torreParaComparar = t.value; estado.nivelParaComparar = 0; return dibujar(); }
   if (t.id === "nivelParaComparar") { estado.nivelParaComparar = +t.value; return dibujar(); }
+  if (t.id === "sumarMisiones") { estado.sumarMisiones = t.checked; return dibujar(); }
 });
 
 document.addEventListener("keyup", (ev) => {
