@@ -127,6 +127,7 @@ const NOMBRES_DE_CAMPOS = {
   maxHealth: "Vida", damage: "Daño", attackRate: "Seg. entre ataques", attackCooldown: "Seg. entre ataques",
   attackRange: "Alcance", patrolSpeed: "Vel. patrulla", chaseSpeed: "Vel. persecución", moveSpeed: "Velocidad",
   velocidadDelAgente: "Vel. en el camino", oroAlMorir: "Oro", xpAlMorir: "XP", rangoDanioCastillo: "Alcance al castillo",
+  golpesAntesDeResponder: "Golpes que lo hacen retroceder antes de responder", ventanaDeParry: "Ventana de parry (s)", costoDelEspadazo: "Resistencia por espadazo (%)", pausaDeLaEstaminaAlAtacar: "Pausa de resistencia al atacar (s)", cadencia: "Segundos entre espadazos", fraccionParaReatacar: "Parte del espadazo antes de poder volver a atacar (0 a 1)", alcanceDeLaEspada: "Alcance de la espada (m)",
   restTimeBetweenWaves: "Descanso entre oleadas (s)", vidaExtraPorOleada: "Vida extra por oleada (0.04 = +4%)", oroExtraPorOleada: "Oro extra por oleada (0.03 = +3%)", enemigosDeMasPorVuelta: "Enemigos de más por vuelta",
   oleadasQueSeRepiten: "Oleadas que se repiten", vidaPorSegundo: "Vida que recupera por segundo",
   esperaParaRecuperarse: "Espera para recuperarse (s)", tiempoParaRegen: "Espera para regenerar (s)",
@@ -617,7 +618,7 @@ function pintarEnemigos() {
 }
 
 function ordenDeCampo(c) {
-  const orden = ["maxHealth", "damage", "attackRate", "attackCooldown", "attackRange", "velocidadDelAgente", "moveSpeed", "chaseSpeed", "patrolSpeed", "oroAlMorir", "xpAlMorir", "rangoDanioCastillo"];
+  const orden = ["maxHealth", "damage", "attackRate", "attackCooldown", "attackRange", "velocidadDelAgente", "moveSpeed", "chaseSpeed", "patrolSpeed", "oroAlMorir", "xpAlMorir", "rangoDanioCastillo", "golpesAntesDeResponder"];
   const i = orden.indexOf(c);
   return i < 0 ? 99 : i;
 }
