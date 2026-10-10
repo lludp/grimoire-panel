@@ -216,14 +216,14 @@ function aviso(texto, segundos = 4) {
   aviso.temporizador = setTimeout(() => (caja.style.display = "none"), segundos * 1000);
 }
 
-function campo(id, ruta, { entero = false, min = 0, paso } = {}) {
+function campo(id, ruta, { entero = false, min = 0, paso, escala = 1 } = {}) {
   const valor = leerRuta(datosDe(id), ruta);
   if (valor === undefined) return "";
   const original = leerRuta(estado.filas.get(id)?.proyecto, ruta);
   const cambiado = original !== undefined && Math.abs(+valor - +original) > 1e-6;
-  const titulo = original !== undefined ? `Valor del juego: ${limpio(original)}` : "";
-  return `<input type="number" data-id="${esc(id)}" data-ruta="${esc(ruta)}" data-entero="${entero ? 1 : 0}"
-    value="${limpio(valor)}" min="${min}" step="${paso ?? (entero ? 1 : "any")}" title="${esc(titulo)}"
+  const titulo = original !== undefined ? `Valor del juego: ${limpio(original / escala)}` : "";
+  return `<input type="number" data-id="${esc(id)}" data-ruta="${esc(ruta)}" data-entero="${entero ? 1 : 0}" data-escala="${escala}"
+    value="${limpio(valor / escala)}" min="${min}" step="${paso ?? (entero ? 1 : "any")}" title="${esc(titulo)}"
     class="${cambiado ? "cambiado" : ""}" ${estado.editor ? "" : "disabled"}>`;
 }
 
@@ -691,7 +691,7 @@ function pintarOleadas() {
   const conAlerta = new Set(calcularAlertas().map((a) => a.ancla));
   const tabla = (lista) => `<div class="tabla"><table>
     <tr><th class="texto">Oleada</th><th class="texto">Enemigos (cantidad × cada cuántos segundos sale)</th><th title="Multiplica la vida de cada enemigo de esta oleada">× vida</th><th title="Multiplica el oro de cada enemigo de esta oleada">× oro</th><th>Vida total</th><th>Oro total</th><th>Dura</th><th>Vida que entra por seg.</th>
-    <th title="Minutos desde que termina la oleada anterior hasta que llega esta. 0 = usa el descanso entre oleadas de la pestaña General">Minutos hasta la oleada</th><th>Llega al minuto</th>
+    <th>Llega al minuto</th>
     <th title="Suma de la XP de cada enemigo de la oleada">XP de los enemigos</th><th title="XP extra por terminar la oleada">XP al terminar</th><th>XP total</th><th title="Sin los enemigos del mundo abierto">Nivel al terminar</th><th></th></tr>
     ${lista.map((o) => {
       const d = datosDe(o.id), c = calcularOleada(o, d);
@@ -704,7 +704,6 @@ function pintarOleadas() {
         <td class="calculo" title="Con todos los multiplicadores: × ${redondo(c.mult.oro)}">${redondo(c.oro, 0)}</td>
         <td class="calculo">${redondo(c.segundos, 0)} s</td>
         <td class="calculo">${redondo(c.vidaPorSegundo, 1)}</td>
-        <td>${d.minutosHastaLaOleada !== undefined ? campo(o.id, "minutosHastaLaOleada", { paso: 0.5 }) : "—"}</td>
         <td class="calculo">${progreso.has(o.id) ? minutos(progreso.get(o.id).llegaEn) : "—"}</td>
         <td class="calculo">${redondo(c.xpEnemigos, 0)}</td>
         <td>${d.xpAlTerminar !== undefined ? campo(o.id, "xpAlTerminar", { entero: true }) : "—"}</td>
@@ -717,7 +716,8 @@ function pintarOleadas() {
   <div class="tarjeta">
     <h2>Curva de las oleadas <small>las ${principales.length} del Tower Defense, en orden</small></h2>
     <div class="grafico"><canvas id="graficoOleadas"></canvas></div>
-    <p class="nota">"Minutos hasta la oleada" en 0 usa el descanso entre oleadas de la pestaña General. "Llega al minuto" suma esas esperas y lo que dura cada oleada. "Nivel al terminar" cuenta la XP de las oleadas (enemigos + XP al terminar) y, si está tildado en Progresión XP, la de las misiones; el mundo abierto suma aparte. La curva completa está en la pestaña Progresión XP.</p>
+    ${estado.filas.has("general/WaveManager") ? `<label class="fila">Minutos entre oleadas (para todas) ${campo("general/WaveManager", "restTimeBetweenWaves", { paso: 0.5, escala: 60 })} ${botonRestaurar("general/WaveManager")}</label>` : ""}
+    <p class="nota">"Minutos entre oleadas" es la espera desde que termina una oleada hasta que llega la siguiente (y antes de la primera). Es el mismo valor que "Descanso entre oleadas" de la pestaña General, acá en minutos. "Llega al minuto" suma esas esperas y lo que dura cada oleada. "Nivel al terminar" cuenta la XP de las oleadas (enemigos + XP al terminar) y, si está tildado en Progresión XP, la de las misiones; el mundo abierto suma aparte. La curva completa está en la pestaña Progresión XP.</p>
     <p class="nota">"Vida que entra por segundo" sirve para comparar con el DPS de las torres: si tus torres tiran menos que eso, los enemigos se acumulan. "× vida" y "× oro" multiplican la vida y el oro de cada enemigo de esa oleada; la vida y el oro total ya los incluyen, junto con la vida y el oro extra por oleada de la pestaña General.</p>
   </div>
   <div class="tarjeta"><h2>Tower Defense</h2>${tabla(principales)}</div>
@@ -1033,7 +1033,7 @@ document.addEventListener("input", (ev) => {
   if (!t.dataset.ruta || t.value === "" || !isFinite(+t.value)) return;
   const id = t.dataset.id;
   const borrador = estado.borradores.get(id) || copia(estado.filas.get(id).datos);
-  let valor = +t.value;
+  let valor = +t.value * (+t.dataset.escala || 1);
   if (t.dataset.entero === "1") valor = Math.round(valor);
   escribirRuta(borrador, t.dataset.ruta, valor);
   if (JSON.stringify(borrador) === JSON.stringify(estado.filas.get(id).datos)) estado.borradores.delete(id);
